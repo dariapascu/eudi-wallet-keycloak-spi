@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EUDI Wallet Authentication - Login</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <div class="card">
+            <div class="icon-container">
+                <div class="wallet-icon">🔐</div>
+            </div>
+
+            <h1>Welcome to EUDI Wallet PoC</h1>
+            <p class="subtitle">Passwordless Authentication with Keycloak</p>
+
+            <div class="auth-options">
+                <h2>Choose Authentication Method</h2>
+
+                <div class="auth-option">
+                    <div class="option-icon">🆔</div>
+                    <h3>National ID (PID)</h3>
+                    <p>Use your government-issued digital identity</p>
+                    <a href="/login?type=pid" class="btn-login btn-pid">
+                        <span class="btn-icon">🔑</span>
+                        Login with National ID
+                    </a>
+                </div>
+
+                <div class="auth-option">
+                    <div class="option-icon">🎓</div>
+                    <h3>University Diploma</h3>
+                    <p>Use your university graduation credential</p>
+                    <a href="/login?type=diploma" class="btn-login btn-diploma">
+                        <span class="btn-icon">📜</span>
+                        Login with Diploma
+                    </a>
+                </div>
+            </div>
+
+            <div class="info-box">
+                <h3>🛡️ How it works:</h3>
+                <ol>
+                    <li>Click your preferred authentication method</li>
+                    <li>You'll be redirected to Keycloak</li>
+                    <li>Scan the QR code with your <strong>Lissi Wallet</strong></li>
+                    <li>Select and share your credentials</li>
+                    <li>You'll be automatically logged in!</li>
+                </ol>
+            </div>
+
+            <div class="features">
+                <div class="feature">
+                    <span class="feature-icon">🔒</span>
+                    <span>Secure</span>
+                </div>
+                <div class="feature">
+                    <span class="feature-icon">⚡</span>
+                    <span>Fast</span>
+                </div>
+                <div class="feature">
+                    <span class="feature-icon">🚫</span>
+                    <span>No Passwords</span>
+                </div>
+            </div>
+        </div>
+
+        <footer>
+            <p>Powered by Keycloak + EUDI Wallet + OpenID4VP</p>
+        </footer>
+    </div>
+</body>
+
+</html>

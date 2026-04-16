@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Profile - EUDI Wallet PoC</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .credential-section {
+            margin-bottom: 2rem;
+        }
+        .credential-section h3 {
+            font-size: 0.85rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #6b7280;
+            margin-bottom: 0.75rem;
+        }
+        .claim-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            padding: 0.55rem 0;
+            border-bottom: 1px solid #f3f4f6;
+            gap: 1rem;
+        }
+        .claim-row:last-child { border-bottom: none; }
+        .claim-key {
+            font-size: 0.875rem;
+            color: #6b7280;
+            min-width: 160px;
+            flex-shrink: 0;
+        }
+        .claim-value {
+            font-size: 0.9rem;
+            font-weight: 500;
+            color: #111827;
+            text-align: right;
+        }
+        .badge {
+            display: inline-block;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+        .badge-green { background: #d1fae5; color: #065f46; }
+        .badge-red   { background: #fee2e2; color: #991b1b; }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <div class="card profile">
+            <h1>&#128100; User Profile</h1>
+            <p class="subtitle">Verified identity from EUDI Wallet credentials</p>
+
+            <div id="profile-container">
+                <p>Loading...</p>
+            </div>
+
+            <div class="actions">
+                <a href="/" class="btn-secondary">
+                    <span class="btn-icon">&#8592;</span>
+                    Back to Dashboard
+                </a>
+                <a href="/logout" class="btn-outline">
+                    <span class="btn-icon">&#128682;</span>
+                    Logout
+                </a>
+            </div>
+        </div>
+
+        <footer>
+            <p>Authenticated via Keycloak + EUDI Wallet</p>
+        </footer>
+    </div>
+
+    <script>
+        const PID_FIELDS = [
+            { key: 'given_name',      label: 'Given name' },
+            { key: 'family_name',     label: 'Family name' },
+            { key: 'birth_date',      label: 'Date of birth' },
+            { key: 'birth_place',     label: 'Place of birth' },
+            { key: 'issuing_country', label: 'Issuing country' },
+        ];
+
+        const DIPLOMA_FIELDS = [
+            { key: 'given_name',      label: 'Given name' },
+            { key: 'family_name',     label: 'Family name' },
+            { key: 'student_id',      label: 'Student ID' },
+            { key: 'university',      label: 'University' },
+            { key: 'graduation_year', label: 'Graduation year' },
+            { key: 'is_student',      label: 'Active student' },
+            { key: 'issuing_country', label: 'Issuing country' },
+            { key: 'issuance_date',   label: 'Issued on' },
+            { key: 'expiry_date',     label: 'Valid until' },
+        ];
+
+        function renderRow(label, value) {
+            if (value === undefined || value === null || value === '') return '';
+            let displayValue;
+            if (typeof value === 'boolean' || value === 'yes' || value === 'no') {
+                const isTrue = value === true || value === 'yes';
+                displayValue = `<span class="badge ${isTrue ? 'badge-green' : 'badge-red'}">${isTrue ? 'Yes' : 'No'}</span>`;
+            } else {
+                displayValue = `<span class="claim-value">${value}</span>`;
+            }
+            return `<div class="claim-row">
+                        <span class="claim-key">${label}</span>
+                        ${displayValue}
+                    </div>`;
+        }
+
+        function renderSection(title, fields, source) {
+            const rows = fields.map(f => renderRow(f.label, source[f.key])).filter(r => r !== '').join('');
+            if (!rows) return '';
+            return `<div class="credential-section">
+                        <h3>${title}</h3>
+                        ${rows}
+                    </div>`;
+        }
+
+        fetch('/api/user')
+            .then(r => r.json())
+            .then(user => {
+                const container = document.getElementById('profile-container');
+                const claims = user.all_claims || {};
+                const merged = { ...user, ...claims };
+                let html = '';
+
+                if (user.credentialType === 'pid') {
+                    html += renderSection('&#127987;&#65039; Personal ID (PID)', PID_FIELDS, merged);
+                } else if (user.credentialType === 'diploma') {
+                    html += renderSection('&#127891; University Diploma', DIPLOMA_FIELDS, merged);
+                } else {
+                    html += renderSection('&#128196; Credential', [...PID_FIELDS, ...DIPLOMA_FIELDS], merged);
+                }
+
+                container.innerHTML = html || '<p>No profile data available.</p>';
+            })
+            .catch(() => {
+                document.getElementById('profile-container').innerHTML = '<p>Error loading profile data.</p>';
+            });
+    </script>
+</body>
+
+</html>

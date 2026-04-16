@@ -1,0 +1,492 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    min-height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    padding: 20px;
+}
+
+.container {
+    width: 100%;
+    max-width: 600px;
+    animation: fadeIn 0.6s ease-out;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.card {
+    background: rgba(255, 255, 255, 0.95);
+    backdrop-filter: blur(10px);
+    border-radius: 24px;
+    padding: 48px;
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
+
+.card:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+}
+
+/* Icon Container */
+.icon-container {
+    text-align: center;
+    margin-bottom: 24px;
+}
+
+.wallet-icon {
+    font-size: 64px;
+    animation: bounce 2s infinite;
+}
+
+@keyframes bounce {
+
+    0%,
+    100% {
+        transform: translateY(0);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+/* Typography */
+h1 {
+    color: #2d3748;
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 12px;
+    text-align: center;
+}
+
+.subtitle {
+    color: #718096;
+    font-size: 16px;
+    text-align: center;
+    margin-bottom: 32px;
+}
+
+/* Info Box */
+.info-box {
+    background: linear-gradient(135deg, #f0f7ff 0%, #e6f2ff 100%);
+    border-left: 4px solid #4285f4;
+    padding: 24px;
+    margin: 24px 0;
+    border-radius: 12px;
+}
+
+.info-box h3 {
+    color: #2d3748;
+    font-size: 18px;
+    margin-bottom: 16px;
+}
+
+.info-box ol {
+    margin-left: 20px;
+    color: #4a5568;
+    line-height: 1.8;
+}
+
+.info-box li {
+    margin: 8px 0;
+}
+
+.info-box strong {
+    color: #2d3748;
+    font-weight: 600;
+}
+
+/* Buttons */
+.btn-primary,
+.btn-secondary,
+.btn-outline {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px 32px;
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 600;
+    text-decoration: none;
+    transition: all 0.3s ease;
+    cursor: pointer;
+    border: none;
+    width: 100%;
+    margin: 8px 0;
+}
+
+.btn-primary {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+}
+
+.btn-primary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(102, 126, 234, 0.6);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, #4285f4 0%, #34a853 100%);
+    color: white;
+    box-shadow: 0 4px 15px rgba(66, 133, 244, 0.4);
+}
+
+.btn-secondary:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(66, 133, 244, 0.6);
+}
+
+.btn-outline {
+    background: transparent;
+    color: #667eea;
+    border: 2px solid #667eea;
+}
+
+.btn-outline:hover {
+    background: #667eea;
+    color: white;
+    transform: translateY(-2px);
+}
+
+.btn-icon {
+    font-size: 20px;
+}
+
+/* Features */
+.features {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 16px;
+    margin-top: 32px;
+}
+
+.feature {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 16px;
+    background: #f7fafc;
+    border-radius: 12px;
+    transition: transform 0.3s ease;
+}
+
+.feature:hover {
+    transform: scale(1.05);
+}
+
+.feature-icon {
+    font-size: 32px;
+}
+
+.feature span:last-child {
+    color: #4a5568;
+    font-size: 14px;
+    font-weight: 500;
+}
+
+/* Dashboard Specific */
+.success-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%);
+    color: #155724;
+    padding: 12px 24px;
+    border-radius: 24px;
+    font-weight: 600;
+    margin-bottom: 24px;
+    animation: slideIn 0.5s ease-out;
+}
+
+@keyframes slideIn {
+    from {
+        opacity: 0;
+        transform: translateX(-20px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.checkmark {
+    font-size: 20px;
+    background: #155724;
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.user-info {
+    background: #f7fafc;
+    border-radius: 16px;
+    padding: 24px;
+    margin: 24px 0;
+}
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    padding: 12px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.info-row:last-child {
+    border-bottom: none;
+}
+
+.label {
+    color: #718096;
+    font-weight: 500;
+}
+
+.value {
+    color: #2d3748;
+    font-weight: 600;
+}
+
+/* Actions */
+.actions {
+    display: flex;
+    gap: 12px;
+    margin-top: 24px;
+}
+
+.actions a {
+    flex: 1;
+}
+
+/* Profile Page */
+.profile-section {
+    margin: 24px 0;
+}
+
+.profile-section h3 {
+    color: #2d3748;
+    font-size: 20px;
+    margin-bottom: 16px;
+}
+
+.claims-grid {
+    background: #f7fafc;
+    border-radius: 16px;
+    padding: 24px;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+.claim-row {
+    display: grid;
+    grid-template-columns: 200px 1fr;
+    gap: 16px;
+    padding: 12px 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.claim-row:last-child {
+    border-bottom: none;
+}
+
+.claim-key {
+    color: #667eea;
+    font-weight: 600;
+    font-size: 14px;
+    word-break: break-word;
+}
+
+.claim-value {
+    color: #2d3748;
+    font-size: 14px;
+    word-break: break-all;
+}
+
+/* Footer */
+footer {
+    text-align: center;
+    margin-top: 24px;
+    color: rgba(255, 255, 255, 0.9);
+    font-size: 14px;
+}
+
+/* Responsive */
+@media (max-width: 640px) {
+    .card {
+        padding: 32px 24px;
+    }
+
+    h1 {
+        font-size: 24px;
+    }
+
+    .features {
+        grid-template-columns: 1fr;
+    }
+
+    .actions {
+        flex-direction: column;
+    }
+
+    .claim-row {
+        grid-template-columns: 1fr;
+        gap: 8px;
+    }
+}
+
+/* Scrollbar Styling */
+.claims-grid::-webkit-scrollbar {
+    width: 8px;
+}
+
+.claims-grid::-webkit-scrollbar-track {
+    background: #e2e8f0;
+    border-radius: 4px;
+}
+
+.claims-grid::-webkit-scrollbar-thumb {
+    background: #667eea;
+    border-radius: 4px;
+}
+
+.claims-grid::-webkit-scrollbar-thumb:hover {
+    background: #764ba2;
+}
+
+/* Authentication Options */
+.auth-options {
+    margin: 30px 0;
+}
+
+.auth-options h2 {
+    font-size: 1.2rem;
+    margin-bottom: 25px;
+    color: #333;
+}
+
+.auth-option {
+    background: #f8f9fa;
+    border-radius: 15px;
+    padding: 25px;
+    margin-bottom: 20px;
+    transition: all 0.3s ease;
+    border: 2px solid transparent;
+}
+
+.auth-option:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.1);
+    border-color: #667eea;
+}
+
+.option-icon {
+    font-size: 3rem;
+    margin-bottom: 10px;
+}
+
+.auth-option h3 {
+    color: #333;
+    margin: 10px 0;
+    font-size: 1.3rem;
+}
+
+.auth-option p {
+    color: #666;
+    margin-bottom: 15px;
+    font-size: 0.9rem;
+}
+
+.btn-login {
+    display: inline-block;
+    width: 100%;
+    padding: 14px 20px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    text-decoration: none;
+    border-radius: 10px;
+    font-weight: 600;
+    transition: all 0.3s ease;
+    text-align: center;
+    font-size: 1rem;
+}
+
+.btn-login:hover {
+    transform: scale(1.05);
+    box-shadow: 0 8px 20px rgba(102, 126, 234, 0.4);
+}
+
+.btn-icon {
+    margin-right: 8px;
+}
+
+/* Dashboard Credential Info */
+.credential-info {
+    margin-top: 20px;
+}
+
+.info-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 20px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    margin-bottom: 20px;
+}
+
+.info-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.info-item {
+    background: #f8f9fa;
+    padding: 15px;
+    border-radius: 10px;
+    border-left: 4px solid #667eea;
+}
+
+.info-label {
+    display: block;
+    font-weight: 600;
+    color: #555;
+    font-size: 0.85rem;
+    margin-bottom: 5px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.info-value {
+    display: block;
+    color: #333;
+    font-size: 1.1rem;
+    font-weight: 500;
+}

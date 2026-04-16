@@ -1,0 +1,21 @@
+# Environment files
+.env
+
+# Maven build output
+eudi-verifier/target/
+
+# Node
+node_modules/
+
+# EC private key
+keycloak/data/eudi-verifier-ec-key.json
+
+# Keycloak runtime logs
+keycloak/data/transaction-logs/
+ngrok.log
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store
