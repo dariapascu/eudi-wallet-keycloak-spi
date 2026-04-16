@@ -2,16 +2,16 @@
 .env
 
 # Maven build output
-eudi-verifier/target/
+**/target/
 
 # Node
 node_modules/
 
 # EC private key
-keycloak/data/eudi-verifier-ec-key.json
+**/eudi-verifier-ec-key.json
 
 # Keycloak runtime logs
-keycloak/data/transaction-logs/
+**/transaction-logs/
 ngrok.log
 
 # Editor
