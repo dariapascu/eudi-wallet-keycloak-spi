@@ -1,0 +1,19 @@
+{
+  "name": "eudi-wallet-poc",
+  "version": "1.0.0",
+  "description": "Proof-of-Concept website for EUDI Wallet passwordless authentication with Keycloak",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": ["eudi", "wallet", "keycloak", "oauth2", "oidc", "authentication"],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "express-session": "^1.17.3",
+    "openid-client": "^5.6.1",
+    "dotenv": "^16.3.1"
+  }
+}

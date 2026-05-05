@@ -1,0 +1,5 @@
+.env
+
+eudi-verifier/target/
+
+ngrok.log

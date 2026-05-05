@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - EUDI Wallet PoC</title>
+    <link rel="stylesheet" href="/styles.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="container">
+        <div class="card dashboard">
+            <div class="success-badge">
+                <span class="checkmark">✓</span>
+                <span>Authenticated</span>
+            </div>
+
+            <h1>Welcome, <span id="user-name">Loading...</span>! 👋</h1>
+            <p class="subtitle">You're successfully authenticated via EUDI Wallet</p>
+
+            <div class="user-info">
+                <h1>Welcome, <span id="user-name"></span>! 👋</h1>
+
+                <!-- For PID users -->
+                <div id="pid-info" class="credential-info" style="display:none">
+                    <div class="info-badge">🆔 National ID Authentication</div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Username:</span>
+                            <span class="info-value" id="username"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Birthdate:</span>
+                            <span class="info-value" id="birthdate"></span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- For Diploma users -->
+                <div id="diploma-info" class="credential-info" style="display:none">
+                    <div class="info-badge">🎓 University Diploma Authentication</div>
+                    <div class="info-grid">
+                        <div class="info-item">
+                            <span class="info-label">Student ID:</span>
+                            <span class="info-value" id="student-id"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">University:</span>
+                            <span class="info-value" id="university"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Graduation Year:</span>
+                            <span class="info-value" id="graduation-year"></span>
+                        </div>
+                        <div class="info-item">
+                            <span class="info-label">Email:</span>
+                            <span class="info-value" id="email"></span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="actions">
+                <a href="/profile" class="btn-secondary">
+                    <span class="btn-icon">👤</span>
+                    View Full Profile
+                </a>
+                <a href="/logout" class="btn-outline">
+                    <span class="btn-icon">🚪</span>
+                    Logout
+                </a>
+            </div>
+        </div>
+
+        <footer>
+            <p>Authenticated via Keycloak + EUDI Wallet</p>
+        </footer>
+    </div>
+
+    <script>
+        // Fetch user info from API
+        fetch('/api/user')
+            .then(response => response.json())
+            .then(user => {
+                console.log('User data:', user);
+
+                const getClaim = (obj, ...keys) => {
+                    for (const key of keys) {
+                        if (obj[key] !== undefined && obj[key] !== null && obj[key] !== '') {
+                            return obj[key];
+                        }
+                    }
+                    return 'N/A';
+                };
+
+                document.getElementById('user-name').textContent = user.name || getClaim(user, 'given_name', 'firstName');
+
+                // Detect credential type
+                if (user.student_id !== undefined || user.studentId !== undefined) {
+                    // Diploma user
+                    document.getElementById('diploma-info').style.display = 'block';
+                    document.getElementById('student-id').textContent = getClaim(user, 'student_id', 'studentId');
+                    document.getElementById('university').textContent = getClaim(user, 'university');
+                    document.getElementById('graduation-year').textContent = getClaim(user, 'graduation_year', 'graduationYear');
+                    document.getElementById('email').textContent = getClaim(user, 'email');
+                } else {
+                    // PID user
+                    document.getElementById('pid-info').style.display = 'block';
+                    document.getElementById('username').textContent = getClaim(user, 'username');
+                    document.getElementById('birthdate').textContent = getClaim(user, 'birthdate', 'birth_date');
+                }
+            })
+            .catch(error => {
+                console.error('Error fetching user data:', error);
+            });
+    </script>
+</body>
+
+</html>
