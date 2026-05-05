@@ -15,11 +15,11 @@ import java.nio.file.*;
 import java.util.*;
 
 /**
- * Construiește Request Objects ca JWT-uri semnate conform OpenID4VP 1.0
- * EUDI Android wallet suportă doar ECDSA (ES256) pentru semnarea JAR-ului
+ * Construieste Request Objects ca JWT-uri semnate conform OpenID4VP 1.0
+ * EUDI Android wallet suporta doar ECDSA (ES256) pentru semnarea JAR-ului
  *
- * Cheia EC P-256 este persistată pe disc pentru a supraviețui restarturilor.
- * Calea fișierului: EUDI_VERIFIER_KEY_PATH env var (default: /opt/keycloak/data/eudi-verifier-ec-key.json)
+ * Cheia EC P-256 este persistenta pe disc
+ * Calea fisierului: EUDI_VERIFIER_KEY_PATH env var (default: /opt/keycloak/data/eudi-verifier-ec-key.json)
  */
 public class RequestObjectJwtBuilder {
 
@@ -39,9 +39,6 @@ public class RequestObjectJwtBuilder {
         }
     }
 
-    /**
-     * Încearcă să încarce cheia de pe disc; dacă nu există, generează una nouă și o salvează.
-     */
     private static ECKey loadOrGenerateKey() throws Exception {
         String keyPath = System.getenv("EUDI_VERIFIER_KEY_PATH");
         if (keyPath == null || keyPath.isBlank()) {
@@ -61,15 +58,12 @@ public class RequestObjectJwtBuilder {
             }
         }
 
-        // Generează cheie nouă
         ECKey generated = new ECKeyGenerator(Curve.P_256)
             .keyID(UUID.randomUUID().toString())
             .generate();
 
-        // Salvează pe disc (creează directoarele dacă nu există)
         try {
             Files.createDirectories(path.getParent());
-            // Scriem atomic: mai întâi într-un fișier temporar, apoi rename
             Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
             Files.write(tmp, generated.toJSONString().getBytes(StandardCharsets.UTF_8),
                     StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
@@ -83,7 +77,7 @@ public class RequestObjectJwtBuilder {
     }
 
     /**
-     * Construiește un Request Object JWT semnat cu ES256
+     * Construieste un Request Object JWT semnat cu ES256
      *
      * @param clientId URL-ul verifier-ului (callback URL)
      * @param responseUri URL pentru VP Token callback
@@ -99,14 +93,14 @@ public class RequestObjectJwtBuilder {
             String state,
             String presentationDefinitionJson) throws Exception {
 
-        // Construiește JWT Header cu ES256
+        // JWT Header cu ES256
         // EUDI wallet requires typ=oauth-authz-req+jwt (RFC 9101 / OpenID4VP spec)
         JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256)
             .keyID(ecKey.getKeyID())
             .type(new JOSEObjectType("oauth-authz-req+jwt"))
             .build();
 
-        // Construiește JWT Claims
+        // Claims
         JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
             .issuer(clientId)
             .audience(clientId)
@@ -124,7 +118,7 @@ public class RequestObjectJwtBuilder {
             .claim("client_metadata", buildClientMetadata())
             .build();
 
-        // Semnează JWT-ul
+        // Semneaza
         SignedJWT signedJWT = new SignedJWT(header, claimsSet);
         signedJWT.sign(signer);
 
@@ -135,7 +129,7 @@ public class RequestObjectJwtBuilder {
     }
 
     /**
-     * Parsează JSON string într-un Map pentru claims
+     * Parseaza JSON string in Map pentru claims
      */
     private static Object parseJsonToObject(String json) {
         try {
@@ -148,19 +142,17 @@ public class RequestObjectJwtBuilder {
     }
 
     /**
-     * Construiește client_metadata pentru EUDI wallet:
-     * - jwks: cheia publică EC a verifier-ului
+     * Construieste client_metadata pentru EUDI wallet:
+     * - jwks: cheia publica EC a verifier-ului
      * - vp_formats: formatele VP acceptate
      */
     private static Map<String, Object> buildClientMetadata() {
         Map<String, Object> clientMetadata = new LinkedHashMap<>();
 
-        // JWKS cu cheia publică EC a verifier-ului
         Map<String, Object> jwks = new LinkedHashMap<>();
         jwks.put("keys", Collections.singletonList(ecKey.toPublicJWK().toJSONObject()));
         clientMetadata.put("jwks", jwks);
 
-        // Formate VP acceptate - dc+sd-jwt (OpenID4VP Draft 23+)
         Map<String, Object> vpFormats = new LinkedHashMap<>();
         Map<String, Object> dcSdJwtFormat = new LinkedHashMap<>();
         dcSdJwtFormat.put("sd-jwt_alg_values", Arrays.asList("ES256", "ES384", "ES512", "RS256"));
@@ -172,7 +164,7 @@ public class RequestObjectJwtBuilder {
     }
 
     /**
-     * Returnează cheia publică EC pentru JWKS endpoint
+     * Returneaza cheia publica EC pentru JWKS endpoint
      */
     public static ECKey getPublicKey() {
         return ecKey.toPublicJWK();

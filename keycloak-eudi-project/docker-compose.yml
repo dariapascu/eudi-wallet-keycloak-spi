@@ -19,7 +19,6 @@ services:
       - ./keycloak/providers:/opt/keycloak/providers
       - ./keycloak/data:/opt/keycloak/data
     healthcheck:
-      # Healthcheck runs inside the container, target the internal port 8080
       test: ["CMD", "curl", "-f", "http://localhost:8080/realms/master"]
       interval: 5s
       timeout: 2s

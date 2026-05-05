@@ -48,7 +48,6 @@ public class VpTokenValidator {
         try {
             // Separa JWT de disclosures si KB-JWT:
             // Format SD-JWT: <issuer-jwt>~<disclosure1>~...~<kb-jwt>
-            // KB-JWT-ul este ultimul element si contine "." (este el insusi un JWT)
             // Disclosures sunt base64url arrays fara "."
             String[] parts = vpToken.split("~");
             String jwtPart = parts[0];
@@ -59,7 +58,6 @@ public class VpTokenValidator {
                 for (int i = 1; i < parts.length; i++) {
                     String part = parts[i];
                     if (part.isEmpty()) continue;
-                    // KB-JWT contine "." (header.payload.signature); disclosures nu contin "."
                     if (part.contains(".") && i == parts.length - 1) {
                         kbJwt = part;
                         LOG.infof("Detected KB-JWT (Key Binding JWT) as last SD-JWT component");
@@ -72,15 +70,14 @@ public class VpTokenValidator {
             LOG.infof("Validating VP Token: JWT length=%d, disclosures=%d, kbJwt=%s",
                     jwtPart.length(), disclosures.size(), kbJwt != null ? "present" : "absent");
             
-            // Parse JWT
             SignedJWT signedJWT = SignedJWT.parse(jwtPart);
             
-            // STEP 1: Verifica semnatura JWT cu JWKS — obligatoriu
+            // STEP 1: Verifica JWT cu JWKS
             SignatureVerificationResult sigResult = verifySignature(signedJWT);
             boolean signatureValid = (sigResult == SignatureVerificationResult.VERIFIED);
             switch (sigResult) {
                 case VERIFIED:
-                    break; // continuăm normal
+                    break;
                 case INVALID_SIGNATURE:
                     return ValidationResult.error("VP Token signature is invalid — token may be forged");
                 case JWKS_UNAVAILABLE:
@@ -98,20 +95,16 @@ public class VpTokenValidator {
             Date exp = signedJWT.getJWTClaimsSet().getExpirationTime();
             Date nbf = signedJWT.getJWTClaimsSet().getNotBeforeTime();
             
-            // Nonce-ul din issuer JWT e opțional (SD-JWT spec nu îl impune aici).
-            // Validarea nonce-ului se face EXCLUSIV prin KB-JWT (Step 5 de mai jos).
             if (nonce != null && expectedNonce != null && !expectedNonce.equals(nonce)) {
                 LOG.errorf("Nonce mismatch in issuer JWT: expected=%s, actual=%s", expectedNonce, nonce);
                 return ValidationResult.error("Nonce mismatch in issuer JWT");
             }
             
-            // Verifica expiration
             if (exp != null && exp.before(new Date())) {
                 LOG.errorf("VP Token expired: exp=%s", exp);
                 return ValidationResult.error("Token expired");
             }
             
-            // Verifica not-before
             if (nbf != null && nbf.after(new Date())) {
                 LOG.errorf("VP Token not yet valid: nbf=%s", nbf);
                 return ValidationResult.error("Token not yet valid");
@@ -119,7 +112,7 @@ public class VpTokenValidator {
             
             LOG.infof("VP Token standard claims validated: iss=%s, exp=%s, nonce=%s", iss, exp, nonce);
             
-            // STEP 4: Procesa disclosures (SD-JWT selective disclosure)
+            // STEP 4: Procesare disclosures (SD-JWT selective disclosure)
             Map<String, Object> allClaims = new HashMap<>(payload);
             if (!disclosures.isEmpty()) {
                 Map<String, Object> disclosedClaims = processDisclosures(disclosures, payload);
@@ -148,7 +141,6 @@ public class VpTokenValidator {
                 return ValidationResult.error("VP Token missing KB-JWT — replay protection not possible");
             }
 
-            // Log validation summary
             LOG.infof("=== VP TOKEN VALIDATION SUMMARY ===");
             LOG.infof("✓ JWT Parsing: SUCCESS");
             LOG.infof("✓ Signature: %s", signatureValid ? "VERIFIED ✓" : "FAILED ✗");
@@ -190,7 +182,6 @@ public class VpTokenValidator {
 
             LOG.infof("KB-JWT claims present: %s", kbClaims.keySet());
 
-            // Verifica nonce — obligatoriu conform OpenID4VP spec (replay protection)
             String kbNonce = (String) kbClaims.get("nonce");
             if (kbNonce == null) {
                 LOG.error("KB-JWT missing 'nonce' claim — replay protection not possible");
@@ -206,7 +197,6 @@ public class VpTokenValidator {
             }
             LOG.infof("KB-JWT nonce validated successfully");
 
-            // Verifica aud (audience = response_uri al verifier-ului)
             List<String> kbAud = kbJWT.getJWTClaimsSet().getAudience();
             if (expectedAudience != null) {
                 if (kbAud == null || kbAud.isEmpty()) {
@@ -220,7 +210,6 @@ public class VpTokenValidator {
                 LOG.infof("KB-JWT audience validated: %s", expectedAudience);
             }
 
-            // Verifica iat (nu mai vechi de 5 minute — previne replay attacks)
             Date kbIat = kbJWT.getJWTClaimsSet().getIssueTime();
             if (kbIat == null) {
                 LOG.error("KB-JWT missing 'iat' claim");
@@ -235,7 +224,7 @@ public class VpTokenValidator {
             LOG.infof("KB-JWT iat validated: age=%ds (max %ds)", ageMs / 1000, maxAge / 1000);
 
             LOG.info("KB-JWT validation passed");
-            return null; // null = succes
+            return null; // succes
 
         } catch (Exception e) {
             LOG.error("KB-JWT validation failed with exception", e);
@@ -244,21 +233,21 @@ public class VpTokenValidator {
     }
 
     /**
-     * Rezultat detaliat al verificării semnăturii, pentru a distinge
-     * între "semnătură invalidă" (token falsificat) și "JWKS indisponibil" (problemă de infrastructură).
+     * Rezultat detaliat al verificarii semnaturii, pentru a distinge
+     * intre "semnatura invalida" (token falsificat) si "JWKS indisponibil" (problema de infrastructura).
      */
     enum SignatureVerificationResult {
-        VERIFIED,           // semnătură criptografic validă
-        INVALID_SIGNATURE,  // token falsificat / cheie greșită
+        VERIFIED,           // semnatura criptografic valida
+        INVALID_SIGNATURE,  // token falsificat / cheie gresita
         JWKS_UNAVAILABLE,   // nu s-a putut contacta issuer-ul pentru JWKS
-        ERROR               // altă eroare (iss lipsă, algoritm nesuportat etc.)
+        ERROR               // alta eroare (iss lipsa, algoritm nesuportat etc.)
     }
 
     /**
      * Verifica semnatura JWT a issuer-ului.
      *
-     * Strategia (în ordine):
-     * 1. x5c header — issuer semnează cu certificat hardware, cheia publică e în header
+     * Strategia (in ordine):
+     * 1. x5c header — issuer semneaza cu certificat hardware, cheia publica e in header
      * 2. JWKS endpoint  — fallback pentru issueri care expun JWKS
      */
     private static SignatureVerificationResult verifySignature(SignedJWT signedJWT) {
@@ -267,7 +256,6 @@ public class VpTokenValidator {
             LOG.infof("Verifying JWT signature: algorithm=%s, iss=%s",
                      algorithm, signedJWT.getJWTClaimsSet().getIssuer());
 
-            // --- Strategia 1: x5c (X.509 Certificate Chain în header) ---
             List<com.nimbusds.jose.util.Base64> x5cList = signedJWT.getHeader().getX509CertChain();
             if (x5cList != null && !x5cList.isEmpty()) {
                 LOG.infof("Found x5c header with %d certificate(s) — using certificate chain for verification", x5cList.size());
@@ -278,7 +266,6 @@ public class VpTokenValidator {
                 LOG.warn("x5c verification failed, falling back to JWKS");
             }
 
-            // --- Strategia 2: JWKS de la issuer ---
             String issuer = signedJWT.getJWTClaimsSet().getIssuer();
             if (issuer == null) {
                 LOG.error("JWT has no 'iss' claim and no x5c header — cannot verify signature");
@@ -293,13 +280,12 @@ public class VpTokenValidator {
     }
 
     /**
-     * Verifică semnătura folosind certificatul din header-ul x5c.
-     * Certificatul leaf (primul din array) conține cheia publică a issuer-ului.
+     * Verifica semnatura folosind certificatul din header-ul x5c.
+     * Certificatul leaf (primul din array) contine cheia publica a issuer-ului.
      */
     private static SignatureVerificationResult verifyWithX5c(SignedJWT signedJWT,
             List<com.nimbusds.jose.util.Base64> x5cList, String algorithm) {
         try {
-            // Decode certificatul leaf (primul din array)
             byte[] certBytes = x5cList.get(0).decode();
             CertificateFactory cf = CertificateFactory.getInstance("X.509");
             X509Certificate leafCert = (X509Certificate) cf.generateCertificate(
@@ -310,7 +296,6 @@ public class VpTokenValidator {
                      leafCert.getIssuerX500Principal().getName(),
                      leafCert.getNotAfter());
 
-            // Verifică că certificatul nu a expirat
             try {
                 leafCert.checkValidity();
             } catch (Exception e) {
@@ -339,7 +324,7 @@ public class VpTokenValidator {
     }
 
     /**
-     * Verifică semnătura folosind JWKS de la issuer (fallback când x5c nu e prezent).
+     * Verifica semnatura folosind JWKS de la issuer (fallback cand x5c nu e prezent).
      */
     private static SignatureVerificationResult verifyWithJwks(SignedJWT signedJWT,
             String issuer, String algorithm) {
@@ -391,7 +376,7 @@ public class VpTokenValidator {
     }
 
     /**
-     * Construiește JWSVerifier corespunzător cheii publice și algoritmului.
+     * Construieste JWSVerifier corespunzator cheii publice si algoritmului.
      */
     private static JWSVerifier buildVerifier(PublicKey publicKey, String algorithm) {
         try {
@@ -412,14 +397,8 @@ public class VpTokenValidator {
     }
     
     /**
-     * SSLContext care acceptă certificate self-signed — utilizat EXCLUSIV pentru
+     * SSLContext care accepta certificate self-signed — utilizat EXCLUSIV pentru
      * fetch-ul JWKS de la issuer-ul local (192.168.1.x).
-     *
-     * NOTĂ SECURITATE: Acceptarea oricărui certificat este acceptabilă NUMAI pentru
-     * conexiuni interne/locale unde identitatea serverului este garantată prin altă metodă
-     * (în cazul nostru, validăm semnătura JWT cu cheia publică obținută din JWKS,
-     * deci chiar dacă TLS e bypassat, un JWKS falsificat ar produce o cheie care nu
-     * verifică semnătura token-ului real al issuer-ului).
      */
     private static SSLContext buildTrustAllSslContext() throws Exception {
         TrustManager[] trustAll = new TrustManager[]{
@@ -456,8 +435,8 @@ public class VpTokenValidator {
     /**
      * Fetch JWKS (JSON Web Key Set) de la issuer.
      *
-     * Încearcă endpoint-urile standard, apoi OpenID Discovery.
-     * Suportă certificate self-signed pentru issueri locali.
+     * incearca endpoint-urile standard, apoi OpenID Discovery.
+     * Suporta certificate self-signed pentru issueri locali.
      */
     private static JWKSet fetchJWKS(String issuer) {
         String baseUrl = issuer.endsWith("/") ? issuer.substring(0, issuer.length() - 1) : issuer;
@@ -489,7 +468,7 @@ public class VpTokenValidator {
             }
         }
 
-        // Încearcă OpenID Discovery
+        // incearca OpenID Discovery
         try {
             String discoveryUrl = baseUrl + "/.well-known/openid-configuration";
             LOG.infof("Attempting OpenID Discovery at: %s", discoveryUrl);
@@ -534,7 +513,6 @@ public class VpTokenValidator {
     private static Map<String, Object> processDisclosures(List<String> disclosures, Map<String, Object> payload) {
         Map<String, Object> disclosedClaims = new HashMap<>();
 
-        // Obtine array-ul de hash-uri din payload
         @SuppressWarnings("unchecked")
         List<String> expectedHashes = (List<String>) payload.get("_sd");
         Set<String> expectedHashSet = expectedHashes != null ? new HashSet<>(expectedHashes) : new HashSet<>();
@@ -542,7 +520,6 @@ public class VpTokenValidator {
         LOG.infof("Processing %d SD-JWT disclosures (expected %d hashes in _sd array)",
                   disclosures.size(), expectedHashSet.size());
 
-        // Dacă nu există _sd în payload, nu putem verifica hash-urile — acceptăm cu warning
         boolean canVerifyHashes = !expectedHashSet.isEmpty();
         if (!canVerifyHashes) {
             LOG.warn("No _sd array in JWT payload — cannot verify disclosure hashes cryptographically");
@@ -560,7 +537,6 @@ public class VpTokenValidator {
                 List<Object> disclosureArray = mapper.readValue(disclosureJson, List.class);
 
                 if (disclosureArray.size() < 3) {
-                    // Nu logăm conținutul disclosure-ului — poate conține date personale
                     LOG.warnf("Disclosure has unexpected format (less than 3 elements), size=%d", disclosureArray.size());
                     continue;
                 }
@@ -568,13 +544,12 @@ public class VpTokenValidator {
                 String claimName = String.valueOf(disclosureArray.get(1));
                 Object claimValue = disclosureArray.get(2);
 
-                // Verificare criptografică hash (SD-JWT spec obligatoriu)
                 if (canVerifyHashes) {
                     String disclosureHash = computeSHA256Base64Url(disclosure);
                     if (!expectedHashSet.contains(disclosureHash)) {
                         LOG.errorf("✗ Disclosure hash MISMATCH for claim '%s' — TAMPERING DETECTED! " +
                                    "Computed hash: %s not found in _sd array.", claimName, disclosureHash);
-                        return null; // semnal de eroare fatală către apelant
+                        return null;
                     }
                     hashVerifiedCount++;
                     LOG.debugf("✓ Disclosure hash verified for claim '%s'", claimName);

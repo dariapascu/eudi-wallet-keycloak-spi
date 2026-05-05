@@ -38,14 +38,8 @@ public class RequestObjectResource implements RealmResourceProvider {
     
     @Override
     public void close() {
-        // No resources to close
     }
-    
-    /**
-     * Returns the Request Object as JWT (for now, just JSON - signing to be added later)
-     * 
-     * Lissi will call: GET https://ngrok.../realms/auth-realm/eudi-verifier/request/{id}
-     */
+
     @GET
     @Path("/request/{requestId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -53,7 +47,6 @@ public class RequestObjectResource implements RealmResourceProvider {
         try {
             LOG.infof("Request object requested: %s", requestId);
             
-            // Retrieve from storage
             RequestObjectManager.RequestObject reqObj = 
                 RequestObjectManager.getInstance().getRequestObject(requestId);
             
@@ -65,13 +58,10 @@ public class RequestObjectResource implements RealmResourceProvider {
                     .build();
             }
             
-            // Decode presentation_definition from Base64
             String presentationDefJson = new String(
                 Base64.getUrlDecoder().decode(reqObj.presentationDefinition)
             );
             
-            // Build Request Object according to OpenID4VP spec
-            // https://openid.net/specs/openid-4-verifiable-presentations-1_0.html#section-5.1
             Map<String, Object> requestObject = new HashMap<>();
             requestObject.put("response_type", "vp_token");
             requestObject.put("response_mode", "direct_post");
@@ -80,7 +70,6 @@ public class RequestObjectResource implements RealmResourceProvider {
             requestObject.put("nonce", reqObj.nonce);
             requestObject.put("state", reqObj.state);
             
-            // Parse and include presentation_definition as object
             @SuppressWarnings("unchecked")
             Map<String, Object> presentationDef = objectMapper.readValue(
                 presentationDefJson, Map.class

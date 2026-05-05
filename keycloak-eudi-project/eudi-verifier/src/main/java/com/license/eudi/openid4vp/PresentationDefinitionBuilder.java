@@ -8,7 +8,7 @@ import java.util.*;
  * Builder pentru generarea DCQL (Digital Credentials Query Language) queries
  * conform OpenID4VP Draft 23+ folosit de EUDI Android Wallet (eudi-lib-jvm-openid4vp-kt 0.12+)
  *
- * DCQL înlocuiește Presentation Exchange presentation_definition.
+ * DCQL inlocuieste Presentation Exchange presentation_definition.
  * Structura: { "credentials": [ { "id", "format": "dc+sd-jwt", "meta": { "vct_values": [...] }, "claims": [...] } ] }
  */
 public class PresentationDefinitionBuilder {
@@ -16,7 +16,7 @@ public class PresentationDefinitionBuilder {
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /**
-     * Generează un DCQL query pentru credențiale PID în format SD-JWT (dc+sd-jwt)
+     * Genereaza DCQL query pentru credentiale PID in format SD-JWT (dc+sd-jwt)
      */
     public static String buildPidPresentationDefinition() {
         Map<String, Object> dcqlQuery = new LinkedHashMap<>();
@@ -33,7 +33,7 @@ public class PresentationDefinitionBuilder {
     }
 
     /**
-     * Generează un DCQL query pentru credențiale de diplomă universitară
+     * Genereaza un DCQL query pentru credentiale de diploma universitara
      */
     public static String buildDiplomaPresentationDefinition() {
         Map<String, Object> dcqlQuery = new LinkedHashMap<>();
@@ -54,12 +54,10 @@ public class PresentationDefinitionBuilder {
         cred.put("id", "pid-credential");
         cred.put("format", "dc+sd-jwt");
 
-        // meta.vct_values specifies the credential type
         Map<String, Object> meta = new LinkedHashMap<>();
         meta.put("vct_values", Collections.singletonList("urn:eu.europa.ec.eudi:pid:1"));
         cred.put("meta", meta);
 
-        // claims: each entry has "path" as a list of path elements (not JSONPath)
         List<Map<String, Object>> claims = new ArrayList<>();
         claims.add(buildClaim("given_name"));
         claims.add(buildClaim("family_name"));

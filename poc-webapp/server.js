@@ -13,26 +13,20 @@ app.use(session({
     resave: false,
     saveUninitialized: false,
     cookie: {
-        secure: false, // Set to true if using HTTPS
+        secure: false, 
         httpOnly: true,
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours
-        sameSite: 'lax' // Important for OAuth2 redirects
+        maxAge: 24 * 60 * 60 * 1000, // 24h
+        sameSite: 'lax' //OAuth2 redirects
     },
-    name: 'eudi.sid' // Custom session cookie name
+    name: 'eudi.sid'
 }));
 
-// Serve static files
 app.use(express.static('public'));
 
-// Global variable to store OIDC client (initialized on startup)
 let client;
 
-// Initialize OpenID Connect client
 async function initializeOIDC() {
     try {
-        // Construiește URL-ul de discovery folosind APP_HOST (IP LAN sau localhost).
-        // Cu KC_HOSTNAME_STRICT=false, Keycloak returnează endpoint-uri cu același host
-        // din request — deci browser-ul (inclusiv telefonul) va putea atinge Keycloak.
         const appHost = process.env.APP_HOST || 'localhost';
         const keycloakPort = new URL(process.env.KEYCLOAK_URL).port || '9080';
         const keycloakDiscoveryUrl =
@@ -56,7 +50,6 @@ async function initializeOIDC() {
     }
 }
 
-// Middleware to check if user is authenticated
 function requireAuth(req, res, next) {
     if (req.session.user) {
         next();
@@ -65,40 +58,31 @@ function requireAuth(req, res, next) {
     }
 }
 
-// ============================================
-// ROUTES
-// ============================================
 
-// Homepage - shows login or dashboard based on auth status
 app.get('/', (req, res) => {
     console.log('📍 GET / - Session user:', req.session.user ? 'EXISTS' : 'NOT FOUND');
     console.log('📍 Session ID:', req.sessionID);
 
     if (req.session.user) {
-        // User is authenticated - show dashboard
         console.log('✅ Showing dashboard for user:', req.session.user.username);
         res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
     } else {
-        // User is not authenticated - show login page
         console.log('🔓 No session - showing login page');
         res.sendFile(path.join(__dirname, 'public', 'index.html'));
     }
 });
 
-// API endpoint to get user info (for dashboard)
 app.get('/api/user', requireAuth, (req, res) => {
     res.json(req.session.user);
 });
 
-// Initiate login - redirect to Keycloak
 app.get('/login', (req, res) => {
-    const credentialType = req.query.type || 'pid'; // default to PID
+    const credentialType = req.query.type || 'pid';
     console.log('🔐 GET /login - Initiating OAuth2 flow');
     console.log('📍 Credential Type:', credentialType);
     console.log('📍 Session ID:', req.sessionID);
     const code_verifier = generators.codeVerifier();
     const code_challenge = generators.codeChallenge(code_verifier);
-    // Store code_verifier and credential type in session
     req.session.code_verifier = code_verifier;
     req.session.credential_type = credentialType;
     console.log('💾 Stored code_verifier and credential type in session');
@@ -106,7 +90,6 @@ app.get('/login', (req, res) => {
         scope: 'openid profile email',
         code_challenge,
         code_challenge_method: 'S256',
-        // Pass credential type to Keycloak via acr_values
         acr_values: `credential_type:${credentialType}`
     });
     console.log('🔗 Authorization URL:', authUrl);
@@ -114,7 +97,6 @@ app.get('/login', (req, res) => {
     res.redirect(authUrl);
 });
 
-// OAuth2 callback - exchange code for tokens
 app.get('/callback', async (req, res) => {
     console.log('');
     console.log('==========================================');
@@ -136,7 +118,6 @@ app.get('/callback', async (req, res) => {
 
         console.log('🔄 Exchanging authorization code for tokens...');
 
-        // Exchange authorization code for tokens
         const tokenSet = await client.callback(
             process.env.REDIRECT_URI,
             params,
@@ -145,15 +126,11 @@ app.get('/callback', async (req, res) => {
 
         console.log('✅ Token exchange successful');
 
-        // Get user info from ID token
         const claims = tokenSet.claims();
         console.log('👤 User claims:', claims);
-        // Detect if this is a diploma credential (has student_id)
         const isDiploma = claims.student_id !== undefined || claims.studentId !== undefined;
 
-        // Store user info in session
         if (isDiploma) {
-            // Diploma credential (prefer snake_case)
             const studentId = claims.student_id || claims.studentId;
             const givenName = claims.given_name || claims.firstName;
             const familyName = claims.family_name || claims.lastName;
@@ -177,7 +154,6 @@ app.get('/callback', async (req, res) => {
                 all_claims: claims
             };
         } else {
-            // PID credential (prefer snake_case)
             req.session.user = {
                 sub: claims.sub,
                 username: claims.preferred_username || claims.sub,
@@ -195,10 +171,8 @@ app.get('/callback', async (req, res) => {
 
         console.log('💾 User stored in session:', req.session.user.username);
 
-        // Clear code_verifier from session
         delete req.session.code_verifier;
 
-        // Save session explicitly before redirect
         req.session.save((err) => {
             if (err) {
                 console.error('❌ Error saving session:', err);
@@ -210,7 +184,6 @@ app.get('/callback', async (req, res) => {
             console.log('==========================================');
             console.log('');
 
-            // Serve dashboard HTML directly instead of redirecting
             res.sendFile(path.join(__dirname, 'public', 'dashboard.html'));
         });
 
@@ -269,22 +242,18 @@ app.get('/callback', async (req, res) => {
     }
 });
 
-// Profile page - protected route
 app.get('/profile', requireAuth, (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'profile.html'));
 });
 
-// Logout
 app.get('/logout', (req, res) => {
     const id_token_hint = req.session.user?.all_claims?.id_token;
 
-    // Destroy session
     req.session.destroy((err) => {
         if (err) {
             console.error('Error destroying session:', err);
         }
 
-        // Build Keycloak logout URL
         const appHost = process.env.APP_HOST || 'localhost';
         const appBaseUrl = `http://${appHost}:${process.env.PORT || 3000}`;
         const keycloakPort = new URL(process.env.KEYCLOAK_URL).port || '9080';
@@ -294,10 +263,6 @@ app.get('/logout', (req, res) => {
         res.redirect(logoutUrl);
     });
 });
-
-// ============================================
-// START SERVER
-// ============================================
 
 async function startServer() {
     await initializeOIDC();

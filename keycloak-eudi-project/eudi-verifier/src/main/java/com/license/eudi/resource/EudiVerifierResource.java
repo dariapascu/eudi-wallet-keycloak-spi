@@ -16,8 +16,8 @@ import java.util.Map;
 
 /**
  * REST endpoints pentru OpenID4VP:
- * - GET /request/{id} - returnează Request Object (pentru wallet)
- * - POST /callback - primește VP Token de la wallet
+ * - GET /request/{id} - returneaza Request Object (pentru wallet)
+ * - POST /callback - primeste VP Token de la wallet
  */
 @Path("/")
 public class EudiVerifierResource {
@@ -31,7 +31,7 @@ public class EudiVerifierResource {
     
     /**
      * Endpoint pentru Request Object by-reference
-     * Wallet face GET la acest endpoint pentru a obține detaliile presentation request-ului
+     * Wallet face GET la acest endpoint pentru a obtine detaliile presentation request-ului
      */
     @GET
     @Path("/request/{requestId}")
@@ -49,7 +49,6 @@ public class EudiVerifierResource {
         }
         
         try {
-            // Generează Request Object ca JWT semnat conform OpenID4VP 1.0
             String signedJwt = RequestObjectJwtBuilder.buildSignedRequestObject(
                 data.clientId,  // client_id = stable pre-registered identifier
                 data.responseUri,
@@ -61,7 +60,6 @@ public class EudiVerifierResource {
             LOG.infof("Returning signed Request Object JWT for requestId=%s, state=%s, length=%d", 
                 requestId, data.state, signedJwt.length());
             
-            // Returnează JWT-ul ca application/jwt
             return Response.ok(signedJwt)
                 .type("application/jwt")
                 .build();
@@ -75,8 +73,8 @@ public class EudiVerifierResource {
     }
     
     /**
-     * JWKS endpoint - expune cheia publică a verifier-ului
-     * EUDI wallet poate folosi acest endpoint pentru a verifica semnătura Request Object JWT
+     * JWKS endpoint - expune cheia publica a verifier-ului
+     * EUDI wallet poate folosi acest endpoint pentru a verifica semnatura Request Object JWT
      */
     @GET
     @Path("/jwks")
@@ -113,7 +111,7 @@ public class EudiVerifierResource {
     
     /**
      * Status endpoint pentru polling din browser
-     * Browser verifică periodic dacă wallet-ul a trimis VP Token
+     * Browser verifica periodic daca wallet-ul a trimis VP Token
      */
     @GET
     @Path("/status")
@@ -163,7 +161,6 @@ public class EudiVerifierResource {
             }
         }
         
-        // încă așteaptă autentificare
         return Response.ok()
             .header("Access-Control-Allow-Origin", "*")
             .header("Access-Control-Allow-Methods", "GET, OPTIONS")
@@ -174,7 +171,7 @@ public class EudiVerifierResource {
     
     /**
      * Callback endpoint pentru VP Token
-     * Wallet face POST aici cu vp_token și presentation_submission
+     * Wallet face POST aici cu vp_token si presentation_submission
      */
     @POST
     @Path("/callback")
@@ -202,7 +199,7 @@ public class EudiVerifierResource {
                 .build();
         }
 
-        // Obține session data pentru a prelua nonce (pentru verificare)
+        // Obtine session data pentru a prelua nonce
         SessionStateManager.SessionData sessionData = SessionStateManager.getInstance().getSessionData(state);
         if (sessionData == null) {
             LOG.warnf("No session data found for state: %s", state);
@@ -211,20 +208,16 @@ public class EudiVerifierResource {
                 .build();
         }
 
-        // Benchmark: înregistrează momentul în care VP token-ul a sosit de la wallet
+        // Benchmark
         SessionStateManager.getInstance().setVpReceivedAt(state, System.currentTimeMillis());
         
         String expectedNonce = sessionData.getNonce();
-        // KB-JWT aud = client_id (conform OpenID4VP pre-registered scheme), nu response_uri
         String expectedAudience = sessionData.getClientId();
         LOG.infof("Validating VP Token with expected nonce: %s, KB-JWT expected audience (client_id): %s",
                 expectedNonce, expectedAudience);
 
-        // DCQL vp_token is a JSON object: {"credential-id": ["<SD-JWT-string>"]}
-        // Extract the SD-JWT string before passing to validator
         String sdJwtToken = extractSdJwtFromDcqlVpToken(vpToken);
 
-        // VALIDATE VP Token cu verificari criptografice
         long kbJwtMaxAgeMs = sessionData.getKbJwtMaxAgeMs();
         VpTokenValidator.ValidationResult validationResult = VpTokenValidator.validate(
             sdJwtToken,
@@ -242,7 +235,6 @@ public class EudiVerifierResource {
         
         LOG.info("VP Token fully verified: JWT signature + SD-JWT disclosures + KB-JWT nonce + KB-JWT audience ✓");
 
-        // STEP: Validate vct claim matches what was requested (prevents PID being accepted where diploma is expected)
         Map<String, Object> claims = validationResult.getClaims();
         String expectedVct = sessionData.getExpectedVct();
         if (expectedVct != null) {
@@ -266,27 +258,24 @@ public class EudiVerifierResource {
             LOG.warn("No claims extracted from VP Token");
         }
         
-        // Extrage claims specifice din payload/disclosures (backwards compatibility)
         Map<String, Object> enrichedClaims = enrichClaims(claims);
         
-        // Benchmark: înregistrează momentul în care validarea criptografică s-a finalizat
+        // Benchmark
         long validatedAt = System.currentTimeMillis();
 
-        // Marchează state-ul ca autentificat cu claims-urile extrase
         SessionStateManager.getInstance().markAuthenticated(state, enrichedClaims, validatedAt);
         
         LOG.infof("Authentication successful for state: %s, extracted %d claims", 
                   state, enrichedClaims.size());
         
-        // Returnează success conform OpenID4VP
         return Response.ok("{\"redirect_uri\":\"about:blank\"}").build();
     }
     
     /**
      * Extrage SD-JWT string din DCQL vp_token JSON object.
      * Format DCQL: {"credential-id": ["<SD-JWT>"]}
-     * Dacă vp_token nu este JSON sau structura nu corespunde, returnează tokenul brut
-     * și logează un warning — nu silently swallow eroarea ca înainte.
+     * Daca vp_token nu este JSON sau structura nu corespunde, returneaza tokenul brut
+     * si logeaza un warning
      */
     private String extractSdJwtFromDcqlVpToken(String vpToken) {
         if (!vpToken.trim().startsWith("{")) {
@@ -326,8 +315,8 @@ public class EudiVerifierResource {
     }
 
     /**
-     * Serializează sigur un error response ca JSON, fără concatenare de string-uri.
-     * Previne JSON injection dacă mesajul de eroare conține caractere speciale.
+     * Serializeaza sigur un error response ca JSON, fara concatenare de string-uri.
+     * Previne JSON injection daca mesajul de eroare contine caractere speciale.
      */
     private String errorJson(String error, String description) {
         try {
@@ -336,19 +325,14 @@ public class EudiVerifierResource {
             body.put("error_description", description);
             return new ObjectMapper().writeValueAsString(body);
         } catch (Exception e) {
-            // fallback imposibil în practică, dar compilatorul e fericit
             return "{\"error\":\"server_error\"}";
         }
     }
 
-    /**
-     * Imbogateste claims cu informatii din structura VC (credentialSubject, etc.)
-     * Backwards compatibility cu logica existenta de claim extraction
-     */
+
     private Map<String, Object> enrichClaims(Map<String, Object> claims) {
         Map<String, Object> enriched = new java.util.HashMap<>(claims);
         
-        // Extrage claims specifice dorite
         String[] desiredClaims = {
             "sub", "given_name", "family_name", "email", "birth_date", "birthdate",
             "unique_id", "age_in_years", "ageInYears", "is_over_18", "isOver18",
@@ -359,7 +343,6 @@ public class EudiVerifierResource {
             "certificate_type"
         };
         
-        // Daca exista credentialSubject, extrage claims de acolo
         if (claims.containsKey("credentialSubject")) {
             @SuppressWarnings("unchecked")
             Map<String, Object> credentialSubject = (Map<String, Object>) claims.get("credentialSubject");
@@ -373,31 +356,21 @@ public class EudiVerifierResource {
         return enriched;
     }
     
-    /**
-     * Extrage claims din VP Token (JWT format) - DEPRECATED
-     * USAR: VpTokenValidator.validate() pentru verificare completa
-     * Pastrat pentru backwards compatibility
-     */
+
     @Deprecated
     private Map<String, Object> extractClaimsFromVpToken(String vpToken) {
         Map<String, Object> claims = new java.util.HashMap<>();
         
         try {
-            // VP Token format: <header>.<payload>.<signature>[~<disclosure>~<disclosure>...]
-            // Pentru SD-JWT, partea după ~ conține disclosures
-            
-            // Separă JWT-ul de disclosures (dacă există)
             String[] parts = vpToken.split("~");
             String jwtPart = parts[0];
             
-            // Parse JWT: <header>.<payload>.<signature>
             String[] jwtParts = jwtPart.split("\\.");
             if (jwtParts.length < 2) {
                 LOG.warn("Invalid JWT format in VP Token");
                 return claims;
             }
             
-            // Decode payload (partea din mijloc)
             String payloadJson = new String(
                 java.util.Base64.getUrlDecoder().decode(jwtParts[1]),
                 java.nio.charset.StandardCharsets.UTF_8
@@ -405,12 +378,10 @@ public class EudiVerifierResource {
             
             LOG.infof("VP Token payload parsed (length=%d)", payloadJson.length());
             
-            // Parse JSON payload
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
             @SuppressWarnings("unchecked")
             Map<String, Object> payload = mapper.readValue(payloadJson, Map.class);
             
-            // Extrage claims direct din payload (pentru non-SD-JWT)
             extractClaim(claims, payload, "sub");
             extractClaim(claims, payload, "given_name");
             extractClaim(claims, payload, "family_name");
@@ -428,7 +399,6 @@ public class EudiVerifierResource {
             extractClaim(claims, payload, "expiration_date");
             extractClaim(claims, payload, "valid_until");
             
-            // Claims pentru diploma
             extractClaim(claims, payload, "vct");
             extractClaim(claims, payload, "firstName");
             extractClaim(claims, payload, "lastName");
@@ -436,7 +406,6 @@ public class EudiVerifierResource {
             extractClaim(claims, payload, "university");
             extractClaim(claims, payload, "graduationYear");
             extractClaim(claims, payload, "isStudent");
-            // Claims pentru diploma (snake_case format)
             extractClaim(claims, payload, "student_id");
             extractClaim(claims, payload, "graduation_year");
             extractClaim(claims, payload, "is_student");
@@ -447,11 +416,9 @@ public class EudiVerifierResource {
             extractClaim(claims, payload, "certificate_type");
             extractClaim(claims, payload, "issuing_country");
             
-            // Dacă există credentialSubject (W3C VC format)
             if (payload.containsKey("credentialSubject")) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> credentialSubject = (Map<String, Object>) payload.get("credentialSubject");
-                // PID claims
                 extractClaim(claims, credentialSubject, "given_name");
                 extractClaim(claims, credentialSubject, "family_name");
                 extractClaim(claims, credentialSubject, "email");
@@ -466,7 +433,7 @@ public class EudiVerifierResource {
                 extractClaim(claims, credentialSubject, "expiry_date");
                 extractClaim(claims, credentialSubject, "expiration_date");
                 extractClaim(claims, credentialSubject, "valid_until");
-                // Diploma claims
+
                 extractClaim(claims, credentialSubject, "vct");
                 extractClaim(claims, credentialSubject, "firstName");
                 extractClaim(claims, credentialSubject, "lastName");
@@ -485,8 +452,6 @@ public class EudiVerifierResource {
                 extractClaim(claims, credentialSubject, "issuing_country");
             }
             
-            // Parse SD-JWT disclosures
-            // Cada disclosure e format: base64url([salt, claim_name, claim_value])
             if (parts.length > 1) {
                 LOG.infof("Found %d SD-JWT disclosures", parts.length - 1);
                 
@@ -494,7 +459,6 @@ public class EudiVerifierResource {
                     if (parts[i].isEmpty()) continue;
                     
                     try {
-                        // Decode disclosure
                         String disclosureJson = new String(
                             java.util.Base64.getUrlDecoder().decode(parts[i]),
                             java.nio.charset.StandardCharsets.UTF_8
@@ -502,7 +466,6 @@ public class EudiVerifierResource {
                         
                         LOG.infof("Disclosure %d parsed (length=%d)", i, disclosureJson.length());
                         
-                        // Parse disclosure array: [salt, claim_name, claim_value]
                         @SuppressWarnings("unchecked")
                         java.util.List<Object> disclosure = mapper.readValue(disclosureJson, java.util.List.class);
                         
@@ -527,10 +490,7 @@ public class EudiVerifierResource {
         
         return claims;
     }
-    
-    /**
-     * Helper pentru extragerea unui claim din payload
-     */
+
     private void extractClaim(Map<String, Object> target, Map<String, Object> source, String key) {
         if (source.containsKey(key) && source.get(key) != null) {
             target.put(key, source.get(key));

@@ -4,7 +4,7 @@ import org.keycloak.models.KeycloakSession;
 import org.keycloak.services.resource.RealmResourceProvider;
 
 /**
- * Provider pentru REST endpoints custom (request URI și callback)
+ * Provider pentru REST endpoints custom (request URI si callback)
  */
 public class EudiVerifierResourceProvider implements RealmResourceProvider {
     
@@ -21,6 +21,5 @@ public class EudiVerifierResourceProvider implements RealmResourceProvider {
     
     @Override
     public void close() {
-        // Nothing to close
     }
 }

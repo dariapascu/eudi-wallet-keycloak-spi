@@ -1,7 +1,5 @@
 #!/bin/bash
 
-# Script pentru build și deploy al EUDI Verifier în Keycloak
-
 set -e
 
 echo "=========================================="
@@ -9,11 +7,10 @@ echo "EUDI Verifier - Build și Deploy"
 echo "=========================================="
 echo ""
 
-# Culori pentru output
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VERIFIER_DIR="$PROJECT_DIR/eudi-verifier"
@@ -87,10 +84,9 @@ fi
 echo -e "${GREEN}✅ ngrok public URL: $NGROK_URL${NC}"
 echo ""
 
-# Write ngrok URL to .env file — read by Docker Compose as EUDI_VERIFIER_BASE_URL env var
+# Write ngrok URL to .env file 
 echo -e "${YELLOW}📝 Writing ngrok URL to .env file...${NC}"
 ENV_FILE="$PROJECT_DIR/.env"
-# Preserve existing entries, update or add EUDI_VERIFIER_BASE_URL
 if [ -f "$ENV_FILE" ]; then
     sed -i '/^EUDI_VERIFIER_BASE_URL=/d' "$ENV_FILE"
 fi

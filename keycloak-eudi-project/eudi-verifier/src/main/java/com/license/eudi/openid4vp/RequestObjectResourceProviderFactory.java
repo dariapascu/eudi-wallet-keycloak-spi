@@ -20,17 +20,14 @@ public class RequestObjectResourceProviderFactory implements RealmResourceProvid
     
     @Override
     public void init(Config.Scope config) {
-        // No initialization needed
     }
     
     @Override
     public void postInit(KeycloakSessionFactory factory) {
-        // No post-initialization needed
     }
     
     @Override
     public void close() {
-        // No resources to close
     }
     
     @Override

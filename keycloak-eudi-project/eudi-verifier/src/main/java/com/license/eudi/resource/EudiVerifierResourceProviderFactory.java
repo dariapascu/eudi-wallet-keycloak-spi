@@ -8,7 +8,7 @@ import org.keycloak.services.resource.RealmResourceProviderFactory;
 
 /**
  * Factory pentru EudiVerifierResourceProvider
- * Înregistrează endpoint-urile /realms/{realm}/eudi-verifier/*
+ * Inregistreaza endpoint-urile /realms/{realm}/eudi-verifier/*
  */
 public class EudiVerifierResourceProviderFactory implements RealmResourceProviderFactory {
     
@@ -21,17 +21,14 @@ public class EudiVerifierResourceProviderFactory implements RealmResourceProvide
     
     @Override
     public void init(Config.Scope config) {
-        // No initialization needed
     }
     
     @Override
     public void postInit(KeycloakSessionFactory factory) {
-        // No post-init needed
     }
     
     @Override
     public void close() {
-        // Nothing to close
     }
     
     @Override

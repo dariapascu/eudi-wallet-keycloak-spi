@@ -12,7 +12,7 @@ public class EudiVerifierAuthenticatorFactory implements AuthenticatorFactory {
 
     public static final String PROVIDER_ID = "eudi-verifier-authenticator";
 
-    // Config property keys — folosite în EudiVerifierAuthenticator pentru a citi valorile
+    // Config property keys — folosite in EudiVerifierAuthenticator pentru a citi valorile
     public static final String CFG_CLIENT_ID         = "client_id";
     public static final String CFG_PID_VCT           = "pid_vct";
     public static final String CFG_DIPLOMA_VCT       = "diploma_vct";

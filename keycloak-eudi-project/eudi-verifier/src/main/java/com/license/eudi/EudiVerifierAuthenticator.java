@@ -24,9 +24,7 @@ import java.util.concurrent.TimeUnit;
 public class EudiVerifierAuthenticator implements Authenticator {
 
     private static final Logger LOG = Logger.getLogger(EudiVerifierAuthenticator.class);
-    
-    // Ngrok URL citit din variabila de mediu EUDI_VERIFIER_BASE_URL (setată de build-and-deploy.sh).
-    // Fallback la URL-ul static dacă variabila nu e definită (dev local fără rebuild).
+
     private static final String NGROK_BASE_URL = resolveBaseUrl();
 
     private static String resolveBaseUrl() {
@@ -41,12 +39,12 @@ public class EudiVerifierAuthenticator implements Authenticator {
     public void authenticate(AuthenticationFlowContext context) {
         LOG.info("========== AUTHENTICATE METHOD CALLED ==========");
         
-        // Verifică dacă e POST request - asta înseamnă că polling-ul a detectat success
+        // Verifica daca e POST request - polling-ul a detectat success
         String method = context.getHttpRequest().getHttpMethod();
         String authSessionId = context.getAuthenticationSession().getParentSession().getId();
         LOG.infof("HTTP Method: %s, AuthSessionId: %s", method, authSessionId);
         
-        // Verifică întotdeauna dacă avem un state autentificat (indiferent de GET/POST)
+        // Verifica intotdeauna daca avem un state autentificat (indiferent de GET/POST)
         String state = SessionStateManager.getInstance().getStateByAuthSession(authSessionId);
         LOG.infof("Looking up state for authSessionId=%s, found state=%s", authSessionId, state);
         
@@ -89,11 +87,10 @@ public class EudiVerifierAuthenticator implements Authenticator {
         }
 
         
-        // Nu avem state autentificat - generăm QR code
+        // Nu avem state autentificat - generam QR code
         LOG.info("No authenticated state found - generating QR code");
         
         try {
-            // Citește configurația din Keycloak admin (setată pe authentication flow execution)
             AuthenticatorConfigModel cfg = context.getAuthenticatorConfig();
             String clientId = cfgString(cfg, EudiVerifierAuthenticatorFactory.CFG_CLIENT_ID,
                     context.getRealm().getName() + "-verifier");
@@ -108,16 +105,12 @@ public class EudiVerifierAuthenticator implements Authenticator {
                     EudiVerifierAuthenticatorFactory.CFG_KBJWT_MAX_AGE_SEC,
                     EudiVerifierAuthenticatorFactory.DEFAULT_KBJWT_MAX_AGE_SEC));
 
-            // Genereaza nonce si state pentru request
             String nonce = UUID.randomUUID().toString();
-            // Construieste URL-ul de callback (unde EUDI wallet va trimite VP Token-ul)
             String callbackUrl = buildCallbackUrl(context);
 
-            // Detect credential type from request parameter
             String credentialType = detectCredentialType(context);
             LOG.infof("Detected credential type: %s", credentialType);
 
-            // Map credential type to expected vct value (must match what issuer puts in the SD-JWT)
             String expectedVct;
             String presentationDefinition;
             if ("diploma".equals(credentialType)) {
@@ -130,21 +123,17 @@ public class EudiVerifierAuthenticator implements Authenticator {
                 LOG.info("Using PID presentation definition");
             }
 
-            // Store credential type in session for later use
             context.getAuthenticationSession().setAuthNote("credential_type", credentialType);
 
             String newState = SessionStateManager.getInstance()
                 .createState(authSessionId, nonce, callbackUrl, clientId, expectedVct, stateTimeoutMs, kbJwtMaxAgeMs);
             LOG.infof("Created new state: %s for authSessionId: %s", newState, authSessionId);
 
-            //ADAUGAT PT TIMP!!!!
-            // Persist state in auth session so it survives reloads
+            //ADAUGAT PT TIMP
             context.getAuthenticationSession().setAuthNote("eudi_state", newState);
 
 
 
-
-            // Create request object and store it (by-reference pattern like credential_offer_uri)
             String requestId = RequestObjectManager.getInstance().createRequestObject(
                 clientId,
                 callbackUrl,
@@ -153,12 +142,9 @@ public class EudiVerifierAuthenticator implements Authenticator {
                 presentationDefinition
             );
             
-            // Build request_uri (where wallet will fetch the actual request)
             String requestUri = NGROK_BASE_URL + "/realms/" + context.getRealm().getName() + 
                                "/eudi-verifier/request/" + requestId;
             
-            // QR Code conform OpenID4VP 1.0 with by-reference pattern
-            // EUDI Android wallet: uses pre-registered scheme with stable clientId
             String authRequestUrl = String.format("openid4vp://?client_id=%s&client_id_scheme=pre-registered&request_uri=%s",
                 java.net.URLEncoder.encode(clientId, java.nio.charset.StandardCharsets.UTF_8),
                 java.net.URLEncoder.encode(requestUri, java.nio.charset.StandardCharsets.UTF_8));
@@ -168,7 +154,6 @@ public class EudiVerifierAuthenticator implements Authenticator {
             LOG.infof("Callback URL: %s", callbackUrl);
             LOG.infof("State: %s, Nonce: %s", newState, nonce);
             
-            // Generează HTML direct cu QR code (temporary solution)
             String html = generateQrPageHtml(authRequestUrl, newState, callbackUrl);
             
             Response challenge = Response.ok(html)
@@ -184,32 +169,29 @@ public class EudiVerifierAuthenticator implements Authenticator {
     }
     
     /**
-     * Construiește URL-ul de callback unde EUDI wallet va trimite VP Token-ul
-     * Folosește ngrok URL pentru a fi accesibil din telefon
+     * Construieste URL-ul de callback unde EUDI wallet va trimite VP Token-ul
+     * Foloseste ngrok URL
      */
     private String buildCallbackUrl(AuthenticationFlowContext context) {
-        // Folosește ngrok URL în loc de localhost
+        // Foloseste ngrok URL in loc de localhost
         return NGROK_BASE_URL + "/realms/" + context.getRealm().getName() + "/eudi-verifier/callback";
     }
     
    /**
- * Detectează tipul de credențial cerut (PID sau diploma)
- * Verifică parametrul acr_values din request OAuth2
- * Format așteptat: acr_values=credential_type:diploma sau credential_type:pid
+ * Detecteaza tipul de credential cerut (PID sau diploma)
+ * Verifica parametrul acr_values din request OAuth2
+ * Format asteptat: acr_values=credential_type:diploma sau credential_type:pid
  */
 private String detectCredentialType(AuthenticationFlowContext context) {
-    // Check auth note first (if set by previous request)
     String storedType = context.getAuthenticationSession().getAuthNote("credential_type");
     if (storedType != null && !storedType.isEmpty()) {
         LOG.infof("Found stored credential type in auth note: %s", storedType);
         return storedType;
     }
     
-    // Check acr_values from URI parameters (sent by OIDC client)
     AuthenticationSessionModel authSession = context.getAuthenticationSession();
     String acrValues = authSession.getClientNote("acr");
     
-    // Try alternative locations for ACR values
     if (acrValues == null) {
         acrValues = context.getUriInfo().getQueryParameters().getFirst("acr_values");
     }
@@ -217,16 +199,14 @@ private String detectCredentialType(AuthenticationFlowContext context) {
     LOG.infof("ACR values: %s", acrValues);
     
     if (acrValues != null && acrValues.contains("credential_type:")) {
-        // Extract type from acr_values (format: "credential_type:diploma")
         String[] parts = acrValues.split("credential_type:");
         if (parts.length > 1) {
-            String type = parts[1].split(" ")[0].trim(); // Get first word after credential_type:
+            String type = parts[1].split(" ")[0].trim();
             LOG.infof("Extracted credential type from acr_values: %s", type);
             return type;
         }
     }
     
-    // Default to PID if not specified
     LOG.info("No credential type specified, defaulting to PID");
     return "pid";
 }
@@ -235,8 +215,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
     public void action(AuthenticationFlowContext context) {
         LOG.info("========== ACTION METHOD CALLED ==========");
         
-        // Acest method va fi apelat de polling-ul din browser
-        // Verifică dacă state-ul a fost marcat ca autentificat
         String authSessionId = context.getAuthenticationSession().getParentSession().getId();
         LOG.infof("Auth session ID: %s", authSessionId);
         
@@ -248,18 +226,16 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         } else {
             LOG.infof("State not authenticated yet or not found. State: %s, Authenticated: %s", 
                      state, state != null ? SessionStateManager.getInstance().isAuthenticated(state) : "null");
-            // Re-afișează pagina de login
             authenticate(context);
         }
     }
     
     /**
-     * Gestionează un state autentificat - provisionează user și finalizează autentificarea
+     * Gestioneaza un state autentificat - provisioneaza user si finalizeaza autentificarea
      */
     private void handleAuthenticatedState(AuthenticationFlowContext context, String state) {
         LOG.infof("handleAuthenticatedState called with state: %s", state);
         
-        // Obtine claims din VP Token
         Map<String, Object> claims = SessionStateManager.getInstance().getClaims(state);
         LOG.infof("Retrieved %d claims from SessionStateManager", claims != null ? claims.size() : 0);
         
@@ -271,16 +247,10 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         
         LOG.infof("Claims received: %s", claims.keySet());
         
-        // Citește tipul credențialului din auth session (setat la generarea QR code)
-        // String credentialType = context.getAuthenticationSession().getAuthNote("credential_type");
-        // if (credentialType == null) credentialType = "pid"; // fallback safe
-
-        // Derivă credential type din vct-ul din claims — robust față de recrearea auth session
         String vct = claims.get("vct") != null ? String.valueOf(claims.get("vct")) : "";
         String credentialType = vct.equals(EudiVerifierAuthenticatorFactory.DEFAULT_DIPLOMA_VCT) ? "diploma" : "pid";
 
 
-        // Provisioneaza user in Keycloak
         UserModel user = provisionUser(context, claims, credentialType);
         
         if (user == null) {
@@ -289,7 +259,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
             return;
         }
         
-        // Seteaza user-ul autentificat si finalizeaza
         context.setUser(user);
         context.success();
         
@@ -297,17 +266,16 @@ private String detectCredentialType(AuthenticationFlowContext context) {
     }
     
     /**
-     * Creează sau actualizează un user Keycloak bazat pe claims-urile din VP Token.
+     * Creeaza sau actualizeaza un user Keycloak bazat pe claims-urile din VP Token.
      *
-     * Atributele sunt stocate prefixate cu tipul credențialului (pid_ / diploma_)
-     * pentru a evita suprascrierea datelor între tipuri diferite de credențiale.
+     * Atributele sunt stocate prefixate cu tipul credentialului (pid_ / diploma_)
+     * pentru a evita suprascrierea datelor intre tipuri diferite de credentiale.
      */
     private UserModel provisionUser(AuthenticationFlowContext context, Map<String, Object> claims,
                                     String credentialType) {
         KeycloakSession session = context.getSession();
         RealmModel realm = context.getRealm();
 
-        // Extrage unique identifier
         String uniqueId = extractUniqueId(claims);
         if (uniqueId == null || uniqueId.isEmpty()) {
             LOG.error("No unique identifier found in claims");
@@ -317,7 +285,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         LOG.infof("Provisioning user with unique ID: %s, credentialType: %s",
                   maskPii(uniqueId), credentialType);
 
-        // Caută user existent sau creează unul nou
         UserModel user = session.users().getUserByUsername(realm, uniqueId);
 
         if (user == null) {
@@ -328,7 +295,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
             LOG.infof("Updating existing user for credentialType=%s", credentialType);
         }
 
-        // Actualizează atributele user-ului, cu prefix pe tip de credențial
         updateUserAttributes(user, claims, credentialType);
 
         return user;
@@ -338,18 +304,15 @@ private String detectCredentialType(AuthenticationFlowContext context) {
      * Extrage identificatorul unic din claims.
      *
      * Prioritate:
-     * 1. unique_id (PID — emis de stat, garantat unic la nivel național)
+     * 1. unique_id (PID — emis de stat, garantat unic la nivel national)
      * 2. sub (standard JWT subject — unic per issuer)
-     * 3. student_id / studentId (diplomă — unic per universitate)
-     * 4. email (dacă există)
-     *
-     * NOTĂ: Combinația given_name+family_name+birthdate NU este folosită ca fallback
-     * deoarece nu este suficient de unică (persoane diferite pot avea același nume și dată de naștere).
+     * 3. student_id / studentId (diploma — unic per universitate)
+     * 4. email (daca exista)
      */
     private String extractUniqueId(Map<String, Object> claims) {
         LOG.infof("Extracting unique ID from claims: %s", claims.keySet());
 
-        // 1. unique_id din PID — identificator național unic
+        // 1. unique_id din PID — identificator national unic
         if (claims.containsKey("unique_id")) {
             String uid = String.valueOf(claims.get("unique_id"));
             LOG.infof("Using unique_id as identifier: %s", maskPii(uid));
@@ -363,7 +326,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
             return sub;
         }
 
-        // 3. student_id / studentId pentru credențiale de diplomă
+        // 3. student_id / studentId pentru credentiale de diploma
         if (claims.containsKey("student_id")) {
             String sid = String.valueOf(claims.get("student_id"));
             LOG.infof("Using student_id as identifier: %s", maskPii(sid));
@@ -387,26 +350,22 @@ private String detectCredentialType(AuthenticationFlowContext context) {
     }
     
     /**
-     * Actualizează atributele user-ului din claims-urile VP Token.
+     * Actualizeaza atributele user-ului din claims-urile VP Token.
      *
-     * Toate atributele specifice unui credențial sunt stocate cu prefix (pid_ / diploma_)
-     * pentru a evita coliziunile când același user se autentifică cu tipuri diferite.
+     * Toate atributele specifice unui credential sunt stocate cu prefix (pid_ / diploma_)
+     * pentru a evita coliziunile cand acelasi user se autentifica cu tipuri diferite.
      *
-     * firstName și lastName din profilul Keycloak sunt setate NUMAI din PID —
-     * documentul de identitate de stat este sursa autoritativă pentru identitate.
+     * firstName si lastName din profilul Keycloak sunt setate NUMAI din PID —
+     * documentul de identitate de stat este sursa autoritativa pentru identitate.
      */
     private void updateUserAttributes(UserModel user, Map<String, Object> claims, String credentialType) {
         boolean isPid = "pid".equals(credentialType);
         String prefix = isPid ? "pid_" : "diploma_";
 
-        // --- Atribute comune (stocate cu prefix pentru fiecare sursă) ---
         setAttrIfPresent(user, prefix + "given_name",  claims, "given_name", "firstName");
         setAttrIfPresent(user, prefix + "family_name", claims, "family_name", "lastName");
         setAttrIfPresent(user, prefix + "vct",         claims, "vct");
 
-        // --- Profilul de bază Keycloak (firstName/lastName) ---
-        // PID este sursa autoritativă și suprascrie întotdeauna.
-        // Diploma populează profilul de bază NUMAI dacă nu există deja date din PID (fallback).
         if (isPid) {
             String givenName = claimStr(claims, "given_name");
             if (givenName != null) user.setFirstName(givenName);
@@ -420,7 +379,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                 user.setEmailVerified(true);
             }
         } else {
-            // Fallback: populează profilul de bază din diplomă doar dacă nu e deja setat din PID
             if (user.getFirstName() == null || user.getFirstName().isEmpty()) {
                 String givenName = claimStr(claims, "given_name");
                 if (givenName != null) user.setFirstName(givenName);
@@ -431,7 +389,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
             }
         }
 
-        // --- Atribute specifice PID ---
         if (isPid) {
             setAttrIfPresent(user, "pid_unique_id",      claims, "unique_id");
             setAttrIfPresent(user, "pid_birth_date",     claims, "birth_date", "birthdate");
@@ -440,7 +397,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
             setAttrIfPresent(user, "pid_age_in_years",   claims, "age_in_years");
         }
 
-        // --- Atribute specifice diplomă ---
         if (!isPid) {
             setAttrIfPresent(user, "diploma_student_id",      claims, "student_id", "studentId");
             setAttrIfPresent(user, "diploma_university",      claims, "university");
@@ -451,7 +407,6 @@ private String detectCredentialType(AuthenticationFlowContext context) {
             setAttrIfPresent(user, "diploma_expiry_date",     claims, "expiry_date");
         }
 
-        // --- Metadate autentificare ---
         user.setSingleAttribute("last_" + prefix + "auth", String.valueOf(System.currentTimeMillis()));
         user.setSingleAttribute("auth_method", "eudi_wallet");
 
@@ -460,7 +415,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
     }
 
     /**
-     * Setează un atribut Keycloak din primul claim găsit în listă (ignorate dacă lipsesc).
+     * Seteaza un atribut Keycloak din primul claim gasit in lista (ignorate daca lipsesc).
      */
     private static void setAttrIfPresent(UserModel user, String attrName,
                                           Map<String, Object> claims, String... claimNames) {
@@ -473,34 +428,34 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         }
     }
 
-    /** Returnează valoarea unui claim ca String, sau null dacă lipsește. */
+    /** Returneaza valoarea unui claim ca String, sau null daca lipseste. */
     private static String claimStr(Map<String, Object> claims, String key) {
         Object val = claims.get(key);
         return val != null ? String.valueOf(val) : null;
     }
 
-    /** Citește o valoare String din configurația authenticatorului, cu fallback la default. */
+    /** Citeste o valoare String din configuratia authenticatorului, cu fallback la default. */
     private static String cfgString(AuthenticatorConfigModel cfg, String key, String defaultValue) {
         if (cfg == null || cfg.getConfig() == null) return defaultValue;
         String val = cfg.getConfig().get(key);
         return (val != null && !val.isBlank()) ? val : defaultValue;
     }
 
-    /** Citește o valoare int din configurația authenticatorului, cu fallback la default. */
+    /** Citeste o valoare int din configuratia authenticatorului, cu fallback la default. */
     private static int cfgInt(AuthenticatorConfigModel cfg, String key, int defaultValue) {
         String val = cfgString(cfg, key, null);
         if (val == null) return defaultValue;
         try { return Integer.parseInt(val.trim()); } catch (NumberFormatException e) { return defaultValue; }
     }
 
-    /** Maschează valori PII în log-uri: afișează primele 4 caractere urmate de *** */
+    /** Mascheaza valori PII in log-uri: afiseaza primele 4 caractere urmate de *** */
     private static String maskPii(String value) {
         if (value == null) return "null";
         if (value.length() <= 4) return "***";
         return value.substring(0, 4) + "***";
     }
 
-    /** Maschează adrese de email în log-uri: păstrează doar domeniul */
+    /** Mascheaza adrese de email in log-uri: pastreaza doar domeniul */
     private static String maskEmail(String email) {
         if (email == null) return "null";
         int atIdx = email.indexOf('@');
@@ -508,7 +463,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
     }
 
     /**
-     * Generează HTML pentru pagina cu QR code (soluție temporară)
+     * Genereaza HTML pentru pagina cu QR code
      */
     private String generateQrPageHtml(String authRequestUrl, String state, String callbackUrl) {
         return """
@@ -714,16 +669,16 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                             document.getElementById("status").style.display = "none";
                             document.getElementById("success").style.display = "block";
                             
-                            // Forțează reîncărcarea paginii pentru a declanșa authenticate() din nou
+                            // Forteaza reincarcarea paginii pentru a declansa authenticate() din nou
                             console.log("Reloading page to complete authentication...");
                             console.log("Current URL:", window.location.href);
                             
-                            // Folosim location.href pentru a forța refresh complet
-                            // setTimeout pentru a permite userului să vadă mesajul
+                            // Folosim location.href pentru a forta refresh complet
+                            // setTimeout pentru a permite userului sa vada mesajul
                             setTimeout(function() {
                                 console.log("Executing reload NOW");
                                 try {
-                                    // Încercăm mai multe metode
+                                    // incercam mai multe metode
                                     window.location.href = window.location.href;
                                 } catch(e) {
                                     console.error("Reload failed:", e);

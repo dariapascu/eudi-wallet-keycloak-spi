@@ -23,10 +23,8 @@ public class RequestObjectManager {
     private static final Logger LOG = Logger.getLogger(RequestObjectManager.class);
     private static final RequestObjectManager INSTANCE = new RequestObjectManager();
     
-    // Storage for request objects by ID
     private final Map<String, RequestObject> requests = new ConcurrentHashMap<>();
     
-    // Cleanup scheduler
     private final ScheduledExecutorService cleanupScheduler = 
         Executors.newSingleThreadScheduledExecutor(r -> {
             Thread t = new Thread(r, "RequestObjectManager-Cleanup");
@@ -34,11 +32,9 @@ public class RequestObjectManager {
             return t;
         });
     
-    // Request expires after 5 minutes
     private static final long EXPIRY_MS = 5 * 60 * 1000;
     
     private RequestObjectManager() {
-        // Start cleanup task every minute
         cleanupScheduler.scheduleAtFixedRate(this::cleanupExpired, 1, 1, TimeUnit.MINUTES);
         LOG.info("RequestObjectManager initialized with 5-minute expiry");
     }
@@ -82,7 +78,6 @@ public class RequestObjectManager {
             return null;
         }
         
-        // Check if expired
         if (System.currentTimeMillis() - req.createdAt > EXPIRY_MS) {
             LOG.warnf("Request object expired: %s", requestId);
             requests.remove(requestId);
