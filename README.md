@@ -181,27 +181,9 @@ Once Keycloak is running at `http://localhost:9080`:
    - Client ID: `test-app`
    - Valid redirect URIs: `http://localhost:3000/callback`
 
-### 6. Configure the EUDI Android Wallet
 
-1. Open `eudi-app-android-wallet-ui` in Android Studio
-2. In `WalletCoreConfigImpl.kt` (flavor `dev`), set:
-   ```kotlin
-   ClientIdScheme.X509SanDns(
-       listOf(
-           PreregisteredVerifier(
-               clientId = "x509_hash:<cert-hash>",
-               legalName = "EUDI Verifier",
-               verifierApi = "https://<local-ip>:8443",
-               jwkSetSource = URI("https://<local-ip>:8443/realms/auth-realm/eudi-verifier/jwks")
-           )
-       )
-   )
-   ```
-   The hash and IP are printed at the end of `build-and-deploy.sh`.
-3. Copy `nginx/ca/ca.crt` → `resources-logic/src/main/res/raw/eudi_verifier_ca.crt` (done automatically on first CA generation)
-4. Build and run on a physical device
 
-### 7. Set up the PoC web application
+### 6. Set up the PoC web application
 
 ```bash
 cd poc-webapp
