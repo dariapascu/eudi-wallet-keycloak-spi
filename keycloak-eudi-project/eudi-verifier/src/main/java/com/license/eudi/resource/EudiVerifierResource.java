@@ -13,12 +13,10 @@ import org.keycloak.models.KeycloakSession;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 
-/**
- * REST endpoints pentru OpenID4VP:
- * - GET /request/{id} - returneaza Request Object (pentru wallet)
- * - POST /callback - primeste VP Token de la wallet
- */
+
 @Path("/")
 public class EudiVerifierResource {
     
@@ -29,10 +27,7 @@ public class EudiVerifierResource {
         this.session = session;
     }
     
-    /**
-     * Endpoint pentru Request Object by-reference
-     * Wallet face GET la acest endpoint pentru a obtine detaliile presentation request-ului
-     */
+    
     @GET
     @Path("/request/{requestId}")
     @Produces(MediaType.APPLICATION_JSON)
@@ -50,7 +45,7 @@ public class EudiVerifierResource {
         
         try {
             String signedJwt = RequestObjectJwtBuilder.buildSignedRequestObject(
-                data.clientId,  // client_id = stable pre-registered identifier
+                data.clientId,
                 data.responseUri,
                 data.nonce,
                 data.state,
@@ -72,10 +67,7 @@ public class EudiVerifierResource {
         }
     }
     
-    /**
-     * JWKS endpoint - expune cheia publica a verifier-ului
-     * EUDI wallet poate folosi acest endpoint pentru a verifica semnatura Request Object JWT
-     */
+  
     @GET
     @Path("/jwks")
     @Produces(MediaType.APPLICATION_JSON)
@@ -95,9 +87,7 @@ public class EudiVerifierResource {
         }
     }
 
-    /**
-     * CORS preflight handler pentru /status endpoint
-     */
+ 
     @OPTIONS
     @Path("/status")
     public Response statusPreflight() {
@@ -109,10 +99,7 @@ public class EudiVerifierResource {
             .build();
     }
     
-    /**
-     * Status endpoint pentru polling din browser
-     * Browser verifica periodic daca wallet-ul a trimis VP Token
-     */
+  
     @GET
     @Path("/status")
     @Produces(MediaType.APPLICATION_JSON)
@@ -169,10 +156,7 @@ public class EudiVerifierResource {
             .build();
     }
     
-    /**
-     * Callback endpoint pentru VP Token
-     * Wallet face POST aici cu vp_token si presentation_submission
-     */
+  
     @POST
     @Path("/callback")
     @Consumes(MediaType.APPLICATION_FORM_URLENCODED)
@@ -182,8 +166,12 @@ public class EudiVerifierResource {
             @FormParam("presentation_submission") String presentationSubmission,
             @FormParam("state") String state) {
         
-        LOG.infof("VP Token received: state=%s, vpToken length=%d", 
+        LOG.infof("VP Token received: state=%s, vpToken length=%d",
             state, vpToken != null ? vpToken.length() : 0);
+        try { // TODO: sterge dupa capturare
+            Files.write(Paths.get("/tmp/vp_token_capture.json"), vpToken.getBytes());
+            LOG.info("[TEST-CAPTURE] VP token scris in /tmp/vp_token_capture.json");
+        } catch (Exception _ignored) {}
         
         if (state == null || state.isEmpty()) {
             LOG.warn("Missing state parameter");
@@ -271,12 +259,7 @@ public class EudiVerifierResource {
         return Response.ok("{\"redirect_uri\":\"about:blank\"}").build();
     }
     
-    /**
-     * Extrage SD-JWT string din DCQL vp_token JSON object.
-     * Format DCQL: {"credential-id": ["<SD-JWT>"]}
-     * Daca vp_token nu este JSON sau structura nu corespunde, returneaza tokenul brut
-     * si logeaza un warning
-     */
+ 
     private String extractSdJwtFromDcqlVpToken(String vpToken) {
         if (!vpToken.trim().startsWith("{")) {
             return vpToken;
@@ -314,10 +297,7 @@ public class EudiVerifierResource {
         return vpToken;
     }
 
-    /**
-     * Serializeaza sigur un error response ca JSON, fara concatenare de string-uri.
-     * Previne JSON injection daca mesajul de eroare contine caractere speciale.
-     */
+  
     private String errorJson(String error, String description) {
         try {
             Map<String, String> body = new LinkedHashMap<>();

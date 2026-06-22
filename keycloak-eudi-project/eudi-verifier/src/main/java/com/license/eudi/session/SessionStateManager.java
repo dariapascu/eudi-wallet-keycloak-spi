@@ -6,10 +6,7 @@ import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Manager pentru legarea state-ului din Authorization Request cu sesiunea Keycloak.
- * Folosit pentru a conecta QR code-ul scanat pe telefon cu sesiunea din browser.
- */
+
 public class SessionStateManager {
     
     private static final Logger LOG = Logger.getLogger(SessionStateManager.class);
@@ -30,9 +27,7 @@ public class SessionStateManager {
         return INSTANCE;
     }
     
-    /**
-     * Genereaza un state nou si il asociaza cu sesiunea Keycloak
-     */
+ 
     public String createState(String authSessionId, String nonce, String responseUri, String clientId,
                                String expectedVct, long stateTimeoutMs, long kbJwtMaxAgeMs) {
         String state = UUID.randomUUID().toString();
@@ -48,9 +43,7 @@ public class SessionStateManager {
         return state;
     }
     
-    /**
-     * Obtine datele sesiunii pentru un state dat
-     */
+   
     public SessionData getSessionData(String state) {
         SessionData data = stateMap.get(state);
         
@@ -68,9 +61,7 @@ public class SessionStateManager {
         return data;
     }
     
-    /**
-     * Inregistreaza momentul in care VP token-ul a fost primit de la wallet (POST /callback)
-     */
+   
     public void setVpReceivedAt(String state, long epochMs) {
         SessionData data = stateMap.get(state);
         if (data != null) {
@@ -78,9 +69,7 @@ public class SessionStateManager {
         }
     }
 
-    /**
-     * Marcheaza un state ca fiind autentificat cu succes
-     */
+    
     public void markAuthenticated(String state, Map<String, Object> claims, long validatedAt) {
         SessionData data = stateMap.get(state);
         if (data != null) {
@@ -91,25 +80,19 @@ public class SessionStateManager {
         }
     }
     
-    /**
-     * Verifica daca un state a fost autentificat
-     */
+ 
     public boolean isAuthenticated(String state) {
         SessionData data = stateMap.get(state);
         return data != null && data.isAuthenticated();
     }
     
-    /**
-     * Obtine claim-urile pentru un state autentificat
-     */
+
     public Map<String, Object> getClaims(String state) {
         SessionData data = stateMap.get(state);
         return data != null ? data.getClaims() : null;
     }
     
-    /**
-     * Sterge un state din cache
-     */
+  
     public void removeState(String state) {
         SessionData data = stateMap.remove(state);
         if (data != null) {
@@ -118,16 +101,12 @@ public class SessionStateManager {
         }
     }
     
-    /**
-     * Obtine state-ul pentru o sesiune Keycloak
-     */
+
     public String getStateByAuthSession(String authSessionId) {
         return sessionToStateMap.get(authSessionId);
     }
     
-    /**
-     * Thread pentru curatarea state-urilor expirate
-     */
+ 
     private void startCleanupThread() {
         Thread cleanupThread = new Thread(() -> {
             while (true) {
@@ -146,9 +125,7 @@ public class SessionStateManager {
         cleanupThread.start();
     }
     
-    /**
-     * Curata state-urile expirate
-     */
+
     private void cleanupExpiredStates() {
         long now = System.currentTimeMillis();
         int removed = 0;
@@ -165,9 +142,7 @@ public class SessionStateManager {
         }
     }
     
-    /**
-     * Clasa pentru datele sesiunii
-     */
+
     public static class SessionData {
         private final String authSessionId;
         private final String nonce;

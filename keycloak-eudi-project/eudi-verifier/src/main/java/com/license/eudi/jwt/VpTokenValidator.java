@@ -22,33 +22,36 @@ import java.security.cert.X509Certificate;
 import java.security.interfaces.ECPublicKey;
 import java.security.interfaces.RSAPublicKey;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.zip.Inflater;
 
-/**
- * Validator pentru VP Token (SD-JWT format) conform OpenID4VP si SD-JWT spec
- * 
- * Verificari:
- * - Semnatura JWT cu cheia publica a issuer-ului
- * - Claim-uri standard (nonce, aud, iss, exp, nbf)
- * - Hash-uri disclosures (pentru SD-JWT selective disclosure)
- */
+
 public class VpTokenValidator {
-    
+
     private static final Logger LOG = Logger.getLogger(VpTokenValidator.class);
-    
-    /**
-     * Valideaza VP Token complet: semnatura, claims, disclosures
-     * 
-     * @param vpToken VP Token in format SD-JWT
-     * @param expectedNonce Nonce-ul asteptat (din request)
-     * @param expectedAudience Audience-ul asteptat (client_id / response_uri)
-     * @return ValidationResult cu status si claims extrase
-     */
+
+    // Permite rescrierea host-ului din URL-ul de revocation când IP-ul din credential nu e accesibil din container
+    // Se setează prin env var EUDI_REVOCATION_HOST_OVERRIDE (ex: "https://host-gateway:8444")
+    private static final String REVOCATION_HOST_OVERRIDE = System.getenv("EUDI_REVOCATION_HOST_OVERRIDE");
+
+    private static final String JWKS_HOST_OVERRIDE = System.getenv("EUDI_JWKS_HOST_OVERRIDE");
+
+    // Cache pentru Token Status List — cheie = URI, TTL derivat din exp al JWT-ului de status
+    private static final ConcurrentHashMap<String, CachedStatusList> statusListCache = new ConcurrentHashMap<>();
+
+    private static class CachedStatusList {
+        final java.util.BitSet bitSet;
+        final long expiresAtMs;
+        CachedStatusList(java.util.BitSet bitSet, long expiresAtMs) {
+            this.bitSet = bitSet;
+            this.expiresAtMs = expiresAtMs;
+        }
+    }
+
     public static ValidationResult validate(String vpToken, String expectedNonce, String expectedAudience,
                                              long kbJwtMaxAgeMs) {
         try {
             // Separa JWT de disclosures si KB-JWT:
-            // Format SD-JWT: <issuer-jwt>~<disclosure1>~...~<kb-jwt>
-            // Disclosures sunt base64url arrays fara "."
             String[] parts = vpToken.split("~");
             String jwtPart = parts[0];
             List<String> disclosures = new ArrayList<>();
@@ -89,7 +92,7 @@ public class VpTokenValidator {
             // STEP 2: Extrage claims din JWT payload
             Map<String, Object> payload = signedJWT.getJWTClaimsSet().getClaims();
             
-            // STEP 3: Valida claim-uri standard
+            // STEP 3: Validare claim-uri standard
             String nonce = (String) payload.get("nonce");
             String iss = (String) payload.get("iss");
             Date exp = signedJWT.getJWTClaimsSet().getExpirationTime();
@@ -123,11 +126,20 @@ public class VpTokenValidator {
                 LOG.infof("Processed %d disclosures, extracted %d claims", disclosures.size(), disclosedClaims.size());
             }
 
-            // STEP 5: Valideaza KB-JWT (EUDI wallet trimite intotdeauna KB-JWT)
+            // Construieste SD-JWT presentation string pentru sd_hash (fara KB-JWT)
+            StringBuilder presentationBuilder = new StringBuilder(jwtPart);
+            for (String d : disclosures) {
+                presentationBuilder.append("~").append(d);
+            }
+            presentationBuilder.append("~");
+            String sdJwtPresentation = presentationBuilder.toString();
+
+            // STEP 5: Valideaza KB-JWT
             String kbJwtError = null;
             boolean kbJwtValid = false;
             if (kbJwt != null) {
-                kbJwtError = validateKbJwt(kbJwt, expectedNonce, expectedAudience, kbJwtMaxAgeMs);
+                kbJwtError = validateKbJwt(kbJwt, expectedNonce, expectedAudience, kbJwtMaxAgeMs,
+                        payload, sdJwtPresentation);
                 kbJwtValid = (kbJwtError == null);
                 if (kbJwtValid && nonce == null) {
                     LOG.info("Nonce validated via KB-JWT");
@@ -139,6 +151,12 @@ public class VpTokenValidator {
             } else {
                 LOG.error("No KB-JWT found in VP Token — nonce cannot be validated, rejecting");
                 return ValidationResult.error("VP Token missing KB-JWT — replay protection not possible");
+            }
+
+            // STEP 6: Verificare stare revocare
+            ValidationResult revocationResult = checkRevocationStatus(allClaims);
+            if (revocationResult != null) {
+                return revocationResult;
             }
 
             LOG.infof("=== VP TOKEN VALIDATION SUMMARY ===");
@@ -161,27 +179,53 @@ public class VpTokenValidator {
         }
     }
     
-    /**
-     * Valideaza KB-JWT (Key Binding JWT) trimis de EUDI wallet.
-     *
-     * KB-JWT contine:
-     *  - nonce: trebuie sa corespunda cu cel din request
-     *  - aud: trebuie sa fie response_uri-ul verifier-ului
-     *  - iat: trebuie sa fie recent (max 5 minute)
-     *  - sd_hash: hash-ul issuer JWT + disclosures
-     *
-     * @return null daca validarea a trecut, sau un mesaj de eroare daca a esuat
-     */
+
     private static final long DEFAULT_KBJWT_MAX_AGE_MS = 5 * 60 * 1000L;
 
+    @SuppressWarnings("unchecked")
     private static String validateKbJwt(String kbJwtStr, String expectedNonce, String expectedAudience,
-                                         long kbJwtMaxAgeMs) {
+                                         long kbJwtMaxAgeMs, Map<String, Object> issuerPayload,
+                                         String sdJwtPresentation) {
         try {
             SignedJWT kbJWT = SignedJWT.parse(kbJwtStr);
             Map<String, Object> kbClaims = kbJWT.getJWTClaimsSet().getClaims();
 
             LOG.infof("KB-JWT claims present: %s", kbClaims.keySet());
 
+            // 1. Verifica semnatura KB-JWT cu cheia publica a holderului (cnf.jwk din issuer JWT)
+            Object cnfObj = issuerPayload.get("cnf");
+            if (cnfObj == null) {
+                LOG.error("Issuer JWT missing 'cnf' claim — holder key binding not possible");
+                return "Issuer JWT missing cnf claim — cannot verify KB-JWT signature";
+            }
+            Map<String, Object> cnf = (Map<String, Object>) cnfObj;
+            Object jwkObj = cnf.get("jwk");
+            if (jwkObj == null) {
+                LOG.error("Issuer JWT 'cnf' missing 'jwk' — holder public key unavailable");
+                return "Issuer JWT cnf missing jwk — cannot verify KB-JWT signature";
+            }
+            JWK holderJwk = JWK.parse((Map<String, Object>) jwkObj);
+            String kbAlgorithm = kbJWT.getHeader().getAlgorithm().getName();
+            PublicKey holderPublicKey;
+            if (kbAlgorithm.startsWith("ES")) {
+                holderPublicKey = holderJwk.toECKey().toECPublicKey();
+            } else if (kbAlgorithm.startsWith("RS") || kbAlgorithm.startsWith("PS")) {
+                holderPublicKey = holderJwk.toRSAKey().toRSAPublicKey();
+            } else {
+                LOG.errorf("Unsupported KB-JWT algorithm: %s", kbAlgorithm);
+                return "Unsupported KB-JWT algorithm: " + kbAlgorithm;
+            }
+            JWSVerifier kbVerifier = buildVerifier(holderPublicKey, kbAlgorithm);
+            if (kbVerifier == null) {
+                return "Cannot build KB-JWT verifier for algorithm: " + kbAlgorithm;
+            }
+            if (!kbJWT.verify(kbVerifier)) {
+                LOG.error("✗ KB-JWT signature INVALID — holder key mismatch, possible replay attack");
+                return "KB-JWT signature invalid — holder key mismatch";
+            }
+            LOG.info("✓ KB-JWT signature VERIFIED against holder cnf.jwk");
+
+            // 2. Verifica nonce
             String kbNonce = (String) kbClaims.get("nonce");
             if (kbNonce == null) {
                 LOG.error("KB-JWT missing 'nonce' claim — replay protection not possible");
@@ -195,8 +239,9 @@ public class VpTokenValidator {
                 LOG.errorf("KB-JWT nonce mismatch: expected=%s, actual=%s", expectedNonce, kbNonce);
                 return "KB-JWT nonce mismatch";
             }
-            LOG.infof("KB-JWT nonce validated successfully");
+            LOG.infof("✓ KB-JWT nonce validated successfully");
 
+            // 3. Verifica audience
             List<String> kbAud = kbJWT.getJWTClaimsSet().getAudience();
             if (expectedAudience != null) {
                 if (kbAud == null || kbAud.isEmpty()) {
@@ -207,9 +252,10 @@ public class VpTokenValidator {
                     LOG.errorf("KB-JWT audience mismatch: expected=%s, actual=%s", expectedAudience, kbAud);
                     return "KB-JWT audience mismatch — token may have been replayed from another verifier";
                 }
-                LOG.infof("KB-JWT audience validated: %s", expectedAudience);
+                LOG.infof("✓ KB-JWT audience validated: %s", expectedAudience);
             }
 
+            // 4. Verifica iat
             Date kbIat = kbJWT.getJWTClaimsSet().getIssueTime();
             if (kbIat == null) {
                 LOG.error("KB-JWT missing 'iat' claim");
@@ -221,9 +267,23 @@ public class VpTokenValidator {
                 LOG.errorf("KB-JWT is too old: age=%ds (max %ds)", ageMs / 1000, maxAge / 1000);
                 return "KB-JWT expired — iat too old (" + (ageMs / 1000) + "s ago, max " + (maxAge / 1000) + "s)";
             }
-            LOG.infof("KB-JWT iat validated: age=%ds (max %ds)", ageMs / 1000, maxAge / 1000);
+            LOG.infof("✓ KB-JWT iat validated: age=%ds (max %ds)", ageMs / 1000, maxAge / 1000);
 
-            LOG.info("KB-JWT validation passed");
+            // 5. Verifica sd_hash
+            String sdHash = (String) kbClaims.get("sd_hash");
+            if (sdHash != null) {
+                String computedHash = computeSHA256Base64Url(sdJwtPresentation);
+                if (!sdHash.equals(computedHash)) {
+                    LOG.errorf("✗ KB-JWT sd_hash MISMATCH: expected=%s, computed=%s — presentation tampered or replayed",
+                               sdHash, computedHash);
+                    return "KB-JWT sd_hash mismatch — presentation may be tampered or replayed";
+                }
+                LOG.info("✓ KB-JWT sd_hash verified — KB-JWT is bound to this exact SD-JWT presentation");
+            } else {
+                LOG.warn("KB-JWT missing 'sd_hash' claim — cannot verify presentation binding (accepted)");
+            }
+
+            LOG.info("✓ KB-JWT validation passed (signature + nonce + aud + iat + sd_hash)");
             return null; // succes
 
         } catch (Exception e) {
@@ -232,10 +292,7 @@ public class VpTokenValidator {
         }
     }
 
-    /**
-     * Rezultat detaliat al verificarii semnaturii, pentru a distinge
-     * intre "semnatura invalida" (token falsificat) si "JWKS indisponibil" (problema de infrastructura).
-     */
+
     enum SignatureVerificationResult {
         VERIFIED,           // semnatura criptografic valida
         INVALID_SIGNATURE,  // token falsificat / cheie gresita
@@ -243,13 +300,7 @@ public class VpTokenValidator {
         ERROR               // alta eroare (iss lipsa, algoritm nesuportat etc.)
     }
 
-    /**
-     * Verifica semnatura JWT a issuer-ului.
-     *
-     * Strategia (in ordine):
-     * 1. x5c header — issuer semneaza cu certificat hardware, cheia publica e in header
-     * 2. JWKS endpoint  — fallback pentru issueri care expun JWKS
-     */
+
     private static SignatureVerificationResult verifySignature(SignedJWT signedJWT) {
         try {
             String algorithm = signedJWT.getHeader().getAlgorithm().getName();
@@ -279,10 +330,7 @@ public class VpTokenValidator {
         }
     }
 
-    /**
-     * Verifica semnatura folosind certificatul din header-ul x5c.
-     * Certificatul leaf (primul din array) contine cheia publica a issuer-ului.
-     */
+
     private static SignatureVerificationResult verifyWithX5c(SignedJWT signedJWT,
             List<com.nimbusds.jose.util.Base64> x5cList, String algorithm) {
         try {
@@ -323,9 +371,7 @@ public class VpTokenValidator {
         }
     }
 
-    /**
-     * Verifica semnatura folosind JWKS de la issuer (fallback cand x5c nu e prezent).
-     */
+
     private static SignatureVerificationResult verifyWithJwks(SignedJWT signedJWT,
             String issuer, String algorithm) {
         String kid = signedJWT.getHeader().getKeyID();
@@ -375,9 +421,7 @@ public class VpTokenValidator {
         }
     }
 
-    /**
-     * Construieste JWSVerifier corespunzator cheii publice si algoritmului.
-     */
+ 
     private static JWSVerifier buildVerifier(PublicKey publicKey, String algorithm) {
         try {
             if (algorithm.startsWith("ES") && publicKey instanceof ECPublicKey) {
@@ -396,10 +440,7 @@ public class VpTokenValidator {
         }
     }
     
-    /**
-     * SSLContext care accepta certificate self-signed — utilizat EXCLUSIV pentru
-     * fetch-ul JWKS de la issuer-ul local (192.168.1.x).
-     */
+
     private static SSLContext buildTrustAllSslContext() throws Exception {
         TrustManager[] trustAll = new TrustManager[]{
             new X509TrustManager() {
@@ -413,10 +454,7 @@ public class VpTokenValidator {
         return ctx;
     }
 
-    /**
-     * Deschide o conexiune HTTP/HTTPS, cu suport pentru certificate self-signed
-     * pe endpoint-urile locale (issuer intern).
-     */
+
     private static HttpURLConnection openConnection(String urlStr) throws Exception {
         URL url = new URL(urlStr);
         HttpURLConnection conn = (HttpURLConnection) url.openConnection();
@@ -432,13 +470,24 @@ public class VpTokenValidator {
         return conn;
     }
 
-    /**
-     * Fetch JWKS (JSON Web Key Set) de la issuer.
-     *
-     * incearca endpoint-urile standard, apoi OpenID Discovery.
-     * Suporta certificate self-signed pentru issueri locali.
-     */
+ 
     private static JWKSet fetchJWKS(String issuer) {
+        JWKSet result = attemptFetchJWKS(issuer);
+        if (result != null) return result;
+
+        // Daca a esuat si e setat un override, incearca cu host rescris
+        if (JWKS_HOST_OVERRIDE != null && !JWKS_HOST_OVERRIDE.isEmpty()) {
+            String overriddenIssuer = issuer.replaceFirst("https?://[^/]+", JWKS_HOST_OVERRIDE);
+            LOG.infof("JWKS fetch failed for original URL, retrying with override: %s", overriddenIssuer);
+            result = attemptFetchJWKS(overriddenIssuer);
+            if (result != null) return result;
+        }
+
+        LOG.errorf("Failed to fetch JWKS from issuer: %s (tried all endpoints)", issuer);
+        return null;
+    }
+
+    private static JWKSet attemptFetchJWKS(String issuer) {
         String baseUrl = issuer.endsWith("/") ? issuer.substring(0, issuer.length() - 1) : issuer;
 
         String[] jwksUrls = {
@@ -498,18 +547,157 @@ public class VpTokenValidator {
             LOG.warnf("OpenID Discovery failed: %s: %s", e.getClass().getSimpleName(), e.getMessage());
         }
 
-        LOG.errorf("Failed to fetch JWKS from issuer: %s (tried all endpoints)", issuer);
         return null;
     }
     
-    /**
-     * Proceseaza disclosures SD-JWT si extrage claim-urile.
-     *
-     * SD-JWT disclosure format: base64url([salt, claim_name, claim_value])
-     * Hash verification: SHA-256(disclosure) TREBUIE sa apara in payload._sd array.
-     *
-     * @return map cu claims extrase, sau null daca vreun hash nu corespunde (tampering detectat)
-     */
+  
+    @SuppressWarnings("unchecked")
+    private static ValidationResult checkRevocationStatus(Map<String, Object> claims) {
+        try {
+            Object statusObj = claims.get("status");
+            if (statusObj == null) {
+                LOG.info("Credential has no 'status' claim — revocation check skipped");
+                return null;
+            }
+
+            Map<String, Object> status = (Map<String, Object>) statusObj;
+            Object statusListObj = status.get("status_list");
+            if (statusListObj == null) {
+                LOG.info("Credential 'status' has no 'status_list' — revocation check skipped");
+                return null;
+            }
+
+            Map<String, Object> statusList = (Map<String, Object>) statusListObj;
+            String crlUri = (String) statusList.get("uri");
+            Object idxObj = statusList.get("idx");
+
+            if (crlUri == null || idxObj == null) {
+                LOG.warn("Credential status_list missing 'uri' or 'idx' — revocation check skipped");
+                return null;
+            }
+
+            int idx = ((Number) idxObj).intValue();
+            LOG.infof("Checking revocation status: uri=%s, idx=%d", crlUri, idx);
+
+            // Verifica cache-ul mai intai
+            java.util.BitSet bitSet = null;
+            CachedStatusList cached = statusListCache.get(crlUri);
+            if (cached != null && System.currentTimeMillis() < cached.expiresAtMs) {
+                LOG.infof("Using cached status list for uri=%s (expires in %ds)",
+                          crlUri, (cached.expiresAtMs - System.currentTimeMillis()) / 1000);
+                bitSet = cached.bitSet;
+            } else {
+                if (cached != null) {
+                    LOG.infof("Cached status list for uri=%s expired — re-fetching", crlUri);
+                }
+                // Incearca URL-ul original din credențial
+                String crlJwtStr = fetchCrlJwt(crlUri);
+                // Daca a esuat si e setat un override, incearca cu host rescris
+                if (crlJwtStr == null && REVOCATION_HOST_OVERRIDE != null && !REVOCATION_HOST_OVERRIDE.isEmpty()) {
+                    String fetchUri = crlUri.replaceFirst("https?://[^/]+", REVOCATION_HOST_OVERRIDE);
+                    LOG.infof("Revocation fetch failed for original URL, retrying with override: %s", fetchUri);
+                    crlJwtStr = fetchCrlJwt(fetchUri);
+                }
+                if (crlJwtStr == null) {
+                    LOG.warnf("⚠ REVOCATION CHECK INCONCLUSIVE: CRL endpoint unreachable at %s — " +
+                              "credential accepted (fail-open). Cannot confirm whether credential is revoked!", crlUri);
+                    return null;
+                }
+
+                SignedJWT crlJwt = SignedJWT.parse(crlJwtStr);
+                Map<String, Object> crlPayload = crlJwt.getJWTClaimsSet().getClaims();
+
+                Object slObj = crlPayload.get("status_list");
+                if (slObj == null) {
+                    LOG.warnf("⚠ REVOCATION CHECK INCONCLUSIVE: CRL JWT from %s missing 'status_list' claim — " +
+                              "credential accepted (fail-open)", crlUri);
+                    return null;
+                }
+
+                Map<String, Object> sl = (Map<String, Object>) slObj;
+                String lst = (String) sl.get("lst");
+                if (lst == null) {
+                    LOG.warnf("⚠ REVOCATION CHECK INCONCLUSIVE: CRL JWT from %s missing 'lst' field — " +
+                              "credential accepted (fail-open)", crlUri);
+                    return null;
+                }
+
+                byte[] compressed = java.util.Base64.getDecoder().decode(lst);
+                byte[] bitsetBytes = decompress(compressed);
+                bitSet = java.util.BitSet.valueOf(bitsetBytes);
+
+                // Determina TTL din exp al JWT-ului de status; fallback 5 minute
+                Date crlExp = crlJwt.getJWTClaimsSet().getExpirationTime();
+                long expiresAtMs;
+                if (crlExp != null) {
+                    expiresAtMs = crlExp.getTime();
+                    LOG.infof("Status list JWT exp=%s — caching for %ds", crlExp,
+                              (expiresAtMs - System.currentTimeMillis()) / 1000);
+                } else {
+                    expiresAtMs = System.currentTimeMillis() + 5 * 60 * 1000L;
+                    LOG.info("Status list JWT has no exp claim — caching with 5min fallback TTL");
+                }
+                statusListCache.put(crlUri, new CachedStatusList(bitSet, expiresAtMs));
+            }
+
+            boolean revoked = bitSet.get(idx);
+            if (revoked) {
+                LOG.errorf("✗ CREDENTIAL REVOKED: uri=%s, idx=%d — rejecting VP token", crlUri, idx);
+                return ValidationResult.error("Credential has been revoked");
+            }
+
+            LOG.infof("✓ REVOCATION CHECK PASSED: credential at uri=%s, idx=%d is NOT revoked",
+                      crlUri, idx);
+            return null;
+
+        } catch (Exception e) {
+            LOG.warnf("⚠ REVOCATION CHECK INCONCLUSIVE: unexpected error — credential accepted (fail-open). " +
+                      "Error: %s: %s", e.getClass().getSimpleName(), e.getMessage());
+            return null;
+        }
+    }
+
+
+    private static String fetchCrlJwt(String crlUri) {
+        try {
+            HttpURLConnection conn = openConnection(crlUri);
+            int code = conn.getResponseCode();
+            if (code != 200) {
+                LOG.warnf("CRL endpoint %s returned HTTP %d", crlUri, code);
+                return null;
+            }
+            try (InputStream is = conn.getInputStream()) {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                @SuppressWarnings("unchecked")
+                Map<String, Object> response = mapper.readValue(is, Map.class);
+                String jwt = (String) response.get("jwt");
+                if (jwt == null) {
+                    LOG.warn("CRL response missing 'jwt' field");
+                }
+                return jwt;
+            }
+        } catch (Exception e) {
+            LOG.warnf("Failed to fetch CRL from %s: %s: %s", crlUri, e.getClass().getSimpleName(), e.getMessage());
+            return null;
+        }
+    }
+
+ 
+    private static byte[] decompress(byte[] compressed) throws Exception {
+        Inflater inflater = new Inflater();
+        inflater.setInput(compressed);
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        byte[] buf = new byte[1024];
+        while (!inflater.finished()) {
+            int n = inflater.inflate(buf);
+            if (n == 0) break;
+            out.write(buf, 0, n);
+        }
+        inflater.end();
+        return out.toByteArray();
+    }
+
+  
     private static Map<String, Object> processDisclosures(List<String> disclosures, Map<String, Object> payload) {
         Map<String, Object> disclosedClaims = new HashMap<>();
 
@@ -572,9 +760,7 @@ public class VpTokenValidator {
         return disclosedClaims;
     }
     
-    /**
-     * Calculeaza SHA-256 hash si encodeaza in Base64URL
-     */
+
     private static String computeSHA256Base64Url(String input) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
@@ -585,9 +771,7 @@ public class VpTokenValidator {
         }
     }
     
-    /**
-     * Rezultatul validarii
-     */
+
     public static class ValidationResult {
         private final boolean valid;
         private final boolean signatureVerified;

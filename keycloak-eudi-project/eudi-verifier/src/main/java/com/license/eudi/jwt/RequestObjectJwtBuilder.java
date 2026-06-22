@@ -4,7 +4,7 @@ import com.nimbusds.jose.*;
 import com.nimbusds.jose.crypto.ECDSASigner;
 import com.nimbusds.jose.jwk.Curve;
 import com.nimbusds.jose.jwk.ECKey;
-import com.nimbusds.jose.jwk.gen.ECKeyGenerator;
+import com.nimbusds.jose.util.Base64;
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.SignedJWT;
 import org.jboss.logging.Logger;
@@ -12,80 +12,85 @@ import org.jboss.logging.Logger;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.security.*;
+import java.security.cert.*;
+import java.security.interfaces.*;
+import java.security.spec.*;
 import java.util.*;
 
-/**
- * Construieste Request Objects ca JWT-uri semnate conform OpenID4VP 1.0
- * EUDI Android wallet suporta doar ECDSA (ES256) pentru semnarea JAR-ului
- *
- * Cheia EC P-256 este persistenta pe disc
- * Calea fisierului: EUDI_VERIFIER_KEY_PATH env var (default: /opt/keycloak/data/eudi-verifier-ec-key.json)
- */
+
 public class RequestObjectJwtBuilder {
 
     private static final Logger LOG = Logger.getLogger(RequestObjectJwtBuilder.class);
 
-    private static final String DEFAULT_KEY_PATH = "/opt/keycloak/data/eudi-verifier-ec-key.json";
+    private static final String DEFAULT_SERVER_KEY = "/opt/keycloak/data/eudi-certs/server.key";
+    private static final String DEFAULT_SERVER_CRT = "/opt/keycloak/data/eudi-certs/server.crt";
+    private static final String DEFAULT_CA_CRT     = "/opt/keycloak/data/eudi-ca/ca.crt";
 
     private static ECKey ecKey;
     private static JWSSigner signer;
+    private static List<Base64> x5cChain;
 
     static {
         try {
-            ecKey = loadOrGenerateKey();
-            signer = new ECDSASigner(ecKey);
+            loadFromNginxCerts();
         } catch (Exception e) {
-            LOG.error("Failed to initialize EC key pair — verifier will not be able to sign requests", e);
+            LOG.error("Failed to load nginx TLS key/cert — verifier will not be able to sign requests", e);
         }
     }
 
-    private static ECKey loadOrGenerateKey() throws Exception {
-        String keyPath = System.getenv("EUDI_VERIFIER_KEY_PATH");
-        if (keyPath == null || keyPath.isBlank()) {
-            keyPath = DEFAULT_KEY_PATH;
+    private static void loadFromNginxCerts() throws Exception {
+        String keyPath  = envOrDefault("EUDI_SERVER_KEY_PATH", DEFAULT_SERVER_KEY);
+        String crtPath  = envOrDefault("EUDI_SERVER_CRT_PATH", DEFAULT_SERVER_CRT);
+        String caPath   = envOrDefault("EUDI_CA_CRT_PATH",     DEFAULT_CA_CRT);
+
+        // Load PKCS#8 EC private key
+        String pemKey = new String(Files.readAllBytes(Paths.get(keyPath)), StandardCharsets.UTF_8);
+        String b64Key = pemKey
+            .replace("-----BEGIN PRIVATE KEY-----", "")
+            .replace("-----END PRIVATE KEY-----", "")
+            .replaceAll("\\s+", "");
+        byte[] keyBytes = java.util.Base64.getDecoder().decode(b64Key);
+        PKCS8EncodedKeySpec keySpec = new PKCS8EncodedKeySpec(keyBytes);
+        ECPrivateKey privateKey = (ECPrivateKey) KeyFactory.getInstance("EC").generatePrivate(keySpec);
+
+        // Load server certificate
+        CertificateFactory cf = CertificateFactory.getInstance("X.509");
+        X509Certificate serverCert;
+        try (InputStream in = new FileInputStream(crtPath)) {
+            serverCert = (X509Certificate) cf.generateCertificate(in);
+        }
+        ECPublicKey publicKey = (ECPublicKey) serverCert.getPublicKey();
+
+        // Load CA certificate
+        X509Certificate caCert;
+        try (InputStream in = new FileInputStream(caPath)) {
+            caCert = (X509Certificate) cf.generateCertificate(in);
         }
 
-        Path path = Paths.get(keyPath);
+        // Build ECKey with cert chain
+        ecKey = new ECKey.Builder(Curve.P_256, publicKey)
+            .privateKey(privateKey)
+            .build();
 
-        if (Files.exists(path)) {
-            try {
-                String json = new String(Files.readAllBytes(path), StandardCharsets.UTF_8);
-                ECKey loaded = ECKey.parse(json);
-                LOG.infof("EC P-256 key loaded from disk: %s (kid=%s)", path, loaded.getKeyID());
-                return loaded;
-            } catch (Exception e) {
-                LOG.errorf("Failed to load EC key from %s: %s — generating a new key", path, e.getMessage());
-            }
-        }
+        signer = new ECDSASigner(ecKey);
 
-        ECKey generated = new ECKeyGenerator(Curve.P_256)
-            .keyID(UUID.randomUUID().toString())
-            .generate();
+        // x5c chain: server cert first, then CA cert
+        x5cChain = Arrays.asList(
+            Base64.encode(serverCert.getEncoded()),
+            Base64.encode(caCert.getEncoded())
+        );
 
-        try {
-            Files.createDirectories(path.getParent());
-            Path tmp = path.resolveSibling(path.getFileName() + ".tmp");
-            Files.write(tmp, generated.toJSONString().getBytes(StandardCharsets.UTF_8),
-                    StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-            Files.move(tmp, path, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
-            LOG.infof("EC P-256 key generated and saved to disk: %s (kid=%s)", path, generated.getKeyID());
-        } catch (Exception e) {
-            LOG.errorf("Could not save EC key to %s: %s — key will be ephemeral this session", path, e.getMessage());
-        }
-
-        return generated;
+        LOG.infof("Loaded nginx TLS key+cert for JAR signing (X509SanDns): key=%s, cert=%s, ca=%s",
+            keyPath, crtPath, caPath);
     }
 
-    /**
-     * Construieste un Request Object JWT semnat cu ES256
-     *
-     * @param clientId URL-ul verifier-ului (callback URL)
-     * @param responseUri URL pentru VP Token callback
-     * @param nonce Nonce pentru replay protection
-     * @param state State pentru session tracking
-     * @param presentationDefinitionJson Presentation Definition ca String JSON
-     * @return JWT semnat ca String
-     */
+    private static String envOrDefault(String name, String def) {
+        String v = System.getenv(name);
+        return (v != null && !v.isBlank()) ? v : def;
+    }
+
+
     public static String buildSignedRequestObject(
             String clientId,
             String responseUri,
@@ -93,14 +98,14 @@ public class RequestObjectJwtBuilder {
             String state,
             String presentationDefinitionJson) throws Exception {
 
-        // JWT Header cu ES256
-        // EUDI wallet requires typ=oauth-authz-req+jwt (RFC 9101 / OpenID4VP spec)
+        // JWT Header cu x5c — wallet-ul citeste cheia publica din certificat
         JWSHeader header = new JWSHeader.Builder(JWSAlgorithm.ES256)
-            .keyID(ecKey.getKeyID())
             .type(new JOSEObjectType("oauth-authz-req+jwt"))
+            .x509CertChain(x5cChain)
             .build();
 
-        // Claims
+        // clientId contine deja prefixul: "x509_hash:<hash>"
+        // SDK-ul compara client_id din QR URL cu cel din JWT — trebuie sa fie identice
         JWTClaimsSet claimsSet = new JWTClaimsSet.Builder()
             .issuer(clientId)
             .audience(clientId)
@@ -110,7 +115,7 @@ public class RequestObjectJwtBuilder {
             .claim("response_type", "vp_token")
             .claim("response_mode", "direct_post")
             .claim("client_id", clientId)
-            .claim("client_id_scheme", "pre-registered")
+            .claim("client_id_scheme", "x509_hash")
             .claim("response_uri", responseUri)
             .claim("nonce", nonce)
             .claim("state", state)
@@ -118,19 +123,15 @@ public class RequestObjectJwtBuilder {
             .claim("client_metadata", buildClientMetadata())
             .build();
 
-        // Semneaza
         SignedJWT signedJWT = new SignedJWT(header, claimsSet);
         signedJWT.sign(signer);
 
         String jwt = signedJWT.serialize();
-        LOG.infof("Created signed Request Object JWT (ES256): length=%d, kid=%s", jwt.length(), ecKey.getKeyID());
+        LOG.infof("Created signed Request Object JWT (ES256, x509_san_dns): length=%d", jwt.length());
 
         return jwt;
     }
 
-    /**
-     * Parseaza JSON string in Map pentru claims
-     */
     private static Object parseJsonToObject(String json) {
         try {
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
@@ -142,16 +143,10 @@ public class RequestObjectJwtBuilder {
     }
 
     /**
-     * Construieste client_metadata pentru EUDI wallet:
-     * - jwks: cheia publica EC a verifier-ului
-     * - vp_formats: formatele VP acceptate
+     * client_metadata fara jwks — cu X509SanDns wallet-ul citeste cheia din x5c header.
      */
     private static Map<String, Object> buildClientMetadata() {
         Map<String, Object> clientMetadata = new LinkedHashMap<>();
-
-        Map<String, Object> jwks = new LinkedHashMap<>();
-        jwks.put("keys", Collections.singletonList(ecKey.toPublicJWK().toJSONObject()));
-        clientMetadata.put("jwks", jwks);
 
         Map<String, Object> vpFormats = new LinkedHashMap<>();
         Map<String, Object> dcSdJwtFormat = new LinkedHashMap<>();
@@ -164,9 +159,9 @@ public class RequestObjectJwtBuilder {
     }
 
     /**
-     * Returneaza cheia publica EC pentru JWKS endpoint
+     * Returneaza cheia publica EC pentru JWKS endpoint (backward compat).
      */
     public static ECKey getPublicKey() {
-        return ecKey.toPublicJWK();
+        return ecKey != null ? ecKey.toPublicJWK() : null;
     }
 }

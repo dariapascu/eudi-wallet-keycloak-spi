@@ -4,20 +4,12 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.*;
 
-/**
- * Builder pentru generarea DCQL (Digital Credentials Query Language) queries
- * conform OpenID4VP Draft 23+ folosit de EUDI Android Wallet (eudi-lib-jvm-openid4vp-kt 0.12+)
- *
- * DCQL inlocuieste Presentation Exchange presentation_definition.
- * Structura: { "credentials": [ { "id", "format": "dc+sd-jwt", "meta": { "vct_values": [...] }, "claims": [...] } ] }
- */
+
 public class PresentationDefinitionBuilder {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
-    /**
-     * Genereaza DCQL query pentru credentiale PID in format SD-JWT (dc+sd-jwt)
-     */
+    
     public static String buildPidPresentationDefinition() {
         Map<String, Object> dcqlQuery = new LinkedHashMap<>();
 
@@ -32,9 +24,7 @@ public class PresentationDefinitionBuilder {
         }
     }
 
-    /**
-     * Genereaza un DCQL query pentru credentiale de diploma universitara
-     */
+
     public static String buildDiplomaPresentationDefinition() {
         Map<String, Object> dcqlQuery = new LinkedHashMap<>();
 

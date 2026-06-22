@@ -9,15 +9,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
-/**
- * Manages Request Objects for OpenID4VP "by reference" pattern.
- * Similar to credential_offer_uri in OpenID4VCI.
- * 
- * Pattern:
- * 1. QR Code contains: openid4vp://?request_uri=https://.../request/{id}
- * 2. Wallet fetches the actual request from that URI
- * 3. Request contains presentation_definition and response_uri
- */
+
 public class RequestObjectManager {
     
     private static final Logger LOG = Logger.getLogger(RequestObjectManager.class);
@@ -43,9 +35,7 @@ public class RequestObjectManager {
         return INSTANCE;
     }
     
-    /**
-     * Creates a new request object and returns its ID
-     */
+
     public String createRequestObject(String clientId, String responseUri, 
                                       String nonce, String state, 
                                       String presentationDefinition) {
@@ -68,28 +58,25 @@ public class RequestObjectManager {
         return requestId;
     }
     
-    /**
-     * Retrieves a request object by ID
-     */
+
     public RequestObject getRequestObject(String requestId) {
-        RequestObject req = requests.get(requestId);
+        // Single-use: consumat la primul fetch 
+        RequestObject req = requests.remove(requestId);
         if (req == null) {
-            LOG.warnf("Request object not found: %s", requestId);
+            LOG.warnf("Request object not found or already consumed: %s", requestId);
             return null;
         }
-        
+
         if (System.currentTimeMillis() - req.createdAt > EXPIRY_MS) {
             LOG.warnf("Request object expired: %s", requestId);
-            requests.remove(requestId);
             return null;
         }
-        
+
+        LOG.infof("Request object consumed (single-use): id=%s, state=%s", requestId, req.state);
         return req;
     }
     
-    /**
-     * Removes expired request objects
-     */
+ 
     private void cleanupExpired() {
         long now = System.currentTimeMillis();
         int removed = 0;
@@ -106,9 +93,7 @@ public class RequestObjectManager {
         }
     }
     
-    /**
-     * Immutable request object data
-     */
+
     public static class RequestObject {
         public final String requestId;
         public final String clientId;

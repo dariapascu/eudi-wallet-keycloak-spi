@@ -6,9 +6,7 @@ import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.services.resource.RealmResourceProvider;
 import org.keycloak.services.resource.RealmResourceProviderFactory;
 
-/**
- * Factory for registering the Request Object REST endpoint with Keycloak
- */
+
 public class RequestObjectResourceProviderFactory implements RealmResourceProviderFactory {
     
     public static final String PROVIDER_ID = "eudi-verifier";

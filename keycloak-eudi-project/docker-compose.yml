@@ -11,15 +11,40 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KC_ADMIN_USERNAME:-admin}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KC_ADMIN_PASSWORD:-admin}
 
-      # URL-ul public al verifier-ului (ngrok) — setat de build-and-deploy.sh în .env
+      # URL-ul public al verifier-ului (nginx) — setat de build-and-deploy.sh în .env
       EUDI_VERIFIER_BASE_URL: ${EUDI_VERIFIER_BASE_URL:-}
+      # Client ID pentru X509SanDns = hostname mDNS al laptopului
+      EUDI_CLIENT_ID: ${EUDI_CLIENT_ID:-eudi-verifier.local}
+      # Rescrie host-ul din URL-ul de revocation dacă IP-ul din credential nu e accesibil din container
+      EUDI_REVOCATION_HOST_OVERRIDE: ${EUDI_REVOCATION_HOST_OVERRIDE:-}
+      # Rescrie host-ul din URL-ul JWKS (iss claim) dacă issuer-ul nu e accesibil direct din container
+      EUDI_JWKS_HOST_OVERRIDE: ${EUDI_JWKS_HOST_OVERRIDE:-}
     ports:
       - "9080:8080"
     volumes:
       - ./keycloak/providers:/opt/keycloak/providers
       - ./keycloak/data:/opt/keycloak/data
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/realms/master"]
-      interval: 5s
-      timeout: 2s
-      retries: 15
+      - ./nginx/certs:/opt/keycloak/data/eudi-certs:ro
+      - ./nginx/ca:/opt/keycloak/data/eudi-ca:ro
+    networks:
+      - default
+    extra_hosts:
+      - "host-gateway:host-gateway"
+      - "${HOST_IP:-172.20.10.10}:host-gateway"
+
+  nginx:
+    image: nginx:alpine
+    ports:
+      - "8443:443"
+    volumes:
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./nginx/certs:/etc/nginx/certs:ro
+    depends_on:
+      - keycloak
+
+networks:
+  default:
+    name: keycloak-eudi-project_default
+    ipam:
+      config:
+        - subnet: 10.200.0.0/24

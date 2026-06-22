@@ -92,8 +92,10 @@ public class EudiVerifierAuthenticator implements Authenticator {
         
         try {
             AuthenticatorConfigModel cfg = context.getAuthenticatorConfig();
-            String clientId = cfgString(cfg, EudiVerifierAuthenticatorFactory.CFG_CLIENT_ID,
-                    context.getRealm().getName() + "-verifier");
+            String clientId = System.getenv("EUDI_CLIENT_ID");
+            if (clientId == null || clientId.isBlank()) {
+                clientId = "eudi-verifier.local";
+            }
             String pidVct = cfgString(cfg, EudiVerifierAuthenticatorFactory.CFG_PID_VCT,
                     EudiVerifierAuthenticatorFactory.DEFAULT_PID_VCT);
             String diplomaVct = cfgString(cfg, EudiVerifierAuthenticatorFactory.CFG_DIPLOMA_VCT,
@@ -145,7 +147,8 @@ public class EudiVerifierAuthenticator implements Authenticator {
             String requestUri = NGROK_BASE_URL + "/realms/" + context.getRealm().getName() + 
                                "/eudi-verifier/request/" + requestId;
             
-            String authRequestUrl = String.format("openid4vp://?client_id=%s&client_id_scheme=pre-registered&request_uri=%s",
+            // clientId contine deja prefixul schemei: "x509_hash:<hash>"
+            String authRequestUrl = String.format("openid4vp://?client_id=%s&request_uri=%s",
                 java.net.URLEncoder.encode(clientId, java.nio.charset.StandardCharsets.UTF_8),
                 java.net.URLEncoder.encode(requestUri, java.nio.charset.StandardCharsets.UTF_8));
             
@@ -154,7 +157,8 @@ public class EudiVerifierAuthenticator implements Authenticator {
             LOG.infof("Callback URL: %s", callbackUrl);
             LOG.infof("State: %s, Nonce: %s", newState, nonce);
             
-            String html = generateQrPageHtml(authRequestUrl, newState, callbackUrl);
+            String actionUrl = context.getActionUrl(context.generateAccessCode()).toString();
+            String html = generateQrPageHtml(authRequestUrl, newState, callbackUrl, actionUrl);
             
             Response challenge = Response.ok(html)
                 .type("text/html; charset=UTF-8")
@@ -168,20 +172,12 @@ public class EudiVerifierAuthenticator implements Authenticator {
         }
     }
     
-    /**
-     * Construieste URL-ul de callback unde EUDI wallet va trimite VP Token-ul
-     * Foloseste ngrok URL
-     */
+   
     private String buildCallbackUrl(AuthenticationFlowContext context) {
-        // Foloseste ngrok URL in loc de localhost
         return NGROK_BASE_URL + "/realms/" + context.getRealm().getName() + "/eudi-verifier/callback";
     }
     
-   /**
- * Detecteaza tipul de credential cerut (PID sau diploma)
- * Verifica parametrul acr_values din request OAuth2
- * Format asteptat: acr_values=credential_type:diploma sau credential_type:pid
- */
+
 private String detectCredentialType(AuthenticationFlowContext context) {
     String storedType = context.getAuthenticationSession().getAuthNote("credential_type");
     if (storedType != null && !storedType.isEmpty()) {
@@ -230,9 +226,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         }
     }
     
-    /**
-     * Gestioneaza un state autentificat - provisioneaza user si finalizeaza autentificarea
-     */
+
     private void handleAuthenticatedState(AuthenticationFlowContext context, String state) {
         LOG.infof("handleAuthenticatedState called with state: %s", state);
         
@@ -265,12 +259,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         LOG.infof("========== AUTHENTICATION SUCCESS for user '%s' via EUDI Wallet ==========", user.getUsername());
     }
     
-    /**
-     * Creeaza sau actualizeaza un user Keycloak bazat pe claims-urile din VP Token.
-     *
-     * Atributele sunt stocate prefixate cu tipul credentialului (pid_ / diploma_)
-     * pentru a evita suprascrierea datelor intre tipuri diferite de credentiale.
-     */
+
     private UserModel provisionUser(AuthenticationFlowContext context, Map<String, Object> claims,
                                     String credentialType) {
         KeycloakSession session = context.getSession();
@@ -300,15 +289,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         return user;
     }
     
-    /**
-     * Extrage identificatorul unic din claims.
-     *
-     * Prioritate:
-     * 1. unique_id (PID — emis de stat, garantat unic la nivel national)
-     * 2. sub (standard JWT subject — unic per issuer)
-     * 3. student_id / studentId (diploma — unic per universitate)
-     * 4. email (daca exista)
-     */
+
     private String extractUniqueId(Map<String, Object> claims) {
         LOG.infof("Extracting unique ID from claims: %s", claims.keySet());
 
@@ -349,15 +330,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         return null;
     }
     
-    /**
-     * Actualizeaza atributele user-ului din claims-urile VP Token.
-     *
-     * Toate atributele specifice unui credential sunt stocate cu prefix (pid_ / diploma_)
-     * pentru a evita coliziunile cand acelasi user se autentifica cu tipuri diferite.
-     *
-     * firstName si lastName din profilul Keycloak sunt setate NUMAI din PID —
-     * documentul de identitate de stat este sursa autoritativa pentru identitate.
-     */
+
     private void updateUserAttributes(UserModel user, Map<String, Object> claims, String credentialType) {
         boolean isPid = "pid".equals(credentialType);
         String prefix = isPid ? "pid_" : "diploma_";
@@ -414,9 +387,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                   credentialType, maskPii(user.getFirstName()), maskPii(user.getLastName()));
     }
 
-    /**
-     * Seteaza un atribut Keycloak din primul claim gasit in lista (ignorate daca lipsesc).
-     */
+
     private static void setAttrIfPresent(UserModel user, String attrName,
                                           Map<String, Object> claims, String... claimNames) {
         for (String claimName : claimNames) {
@@ -428,44 +399,36 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         }
     }
 
-    /** Returneaza valoarea unui claim ca String, sau null daca lipseste. */
     private static String claimStr(Map<String, Object> claims, String key) {
         Object val = claims.get(key);
         return val != null ? String.valueOf(val) : null;
     }
 
-    /** Citeste o valoare String din configuratia authenticatorului, cu fallback la default. */
     private static String cfgString(AuthenticatorConfigModel cfg, String key, String defaultValue) {
         if (cfg == null || cfg.getConfig() == null) return defaultValue;
         String val = cfg.getConfig().get(key);
         return (val != null && !val.isBlank()) ? val : defaultValue;
     }
 
-    /** Citeste o valoare int din configuratia authenticatorului, cu fallback la default. */
     private static int cfgInt(AuthenticatorConfigModel cfg, String key, int defaultValue) {
         String val = cfgString(cfg, key, null);
         if (val == null) return defaultValue;
         try { return Integer.parseInt(val.trim()); } catch (NumberFormatException e) { return defaultValue; }
     }
 
-    /** Mascheaza valori PII in log-uri: afiseaza primele 4 caractere urmate de *** */
     private static String maskPii(String value) {
         if (value == null) return "null";
         if (value.length() <= 4) return "***";
         return value.substring(0, 4) + "***";
     }
 
-    /** Mascheaza adrese de email in log-uri: pastreaza doar domeniul */
     private static String maskEmail(String email) {
         if (email == null) return "null";
         int atIdx = email.indexOf('@');
         return atIdx > 0 ? "***" + email.substring(atIdx) : "***";
     }
 
-    /**
-     * Genereaza HTML pentru pagina cu QR code
-     */
-    private String generateQrPageHtml(String authRequestUrl, String state, String callbackUrl) {
+    private String generateQrPageHtml(String authRequestUrl, String state, String callbackUrl, String actionUrl) {
         return """
 <!DOCTYPE html>
 <html>
@@ -589,6 +552,10 @@ private String detectCredentialType(AuthenticationFlowContext context) {
         <div id="success" class="status success" style="display:none;">
             <p>✅ Authentication successful! Redirecting...</p>
         </div>
+
+        <form id="keycloak-action-form" action="%s" method="post" style="display:none;">
+            <input type="hidden" name="eudi_authenticated" value="true" />
+        </form>
         
         <details class="debug">
             <summary style="cursor: pointer; font-weight: bold;">🔧 Debug Info</summary>
@@ -651,12 +618,18 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                 }
                 
                 try {
-                    const statusUrl = callbackUrl.replace('/callback', '/status') + '?state=' + encodeURIComponent(state);
+                    // Construieste URL-ul de status din window.location (same-origin, evita CORS cu ngrok)
+                    const pathParts = window.location.pathname.split('/');
+                    const realmsIdx = pathParts.indexOf('realms');
+                    const realmBase = (realmsIdx >= 0 && pathParts[realmsIdx + 1])
+                        ? window.location.origin + '/realms/' + pathParts[realmsIdx + 1]
+                        : window.location.origin;
+                    const statusUrl = realmBase + '/eudi-verifier/status?state=' + encodeURIComponent(state);
+                    console.log('Status URL: ' + statusUrl);
                     const response = await fetch(statusUrl, {
                         method: 'GET',
-                        headers: { 
-                            'Accept': 'application/json',
-                            'ngrok-skip-browser-warning': 'true'
+                        headers: {
+                            'Accept': 'application/json'
                         }
                     });
                     
@@ -673,17 +646,10 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                             console.log("Reloading page to complete authentication...");
                             console.log("Current URL:", window.location.href);
                             
-                            // Folosim location.href pentru a forta refresh complet
-                            // setTimeout pentru a permite userului sa vada mesajul
+                            // Reload GET → authenticate() detecteaza starea autentificata →
+                            // handleAuthenticatedState() → context.success() → redirect la app
                             setTimeout(function() {
-                                console.log("Executing reload NOW");
-                                try {
-                                    // incercam mai multe metode
-                                    window.location.href = window.location.href;
-                                } catch(e) {
-                                    console.error("Reload failed:", e);
-                                    window.location.reload(true);
-                                }
+                                window.location.reload(true);
                             }, 1000);
                         }
                     }
@@ -703,15 +669,14 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                 escapeHtml(callbackUrl),
                 escapeHtml(state),
                 escapeHtml(authRequestUrl.substring(0, Math.min(200, authRequestUrl.length()))),
+                escapeHtml(actionUrl),
                 escapeJavaScript(authRequestUrl),
                 escapeJavaScript(state),
                 escapeJavaScript(callbackUrl)
         );
     }
     
-    /**
-     * Escape HTML pentru a preveni XSS
-     */
+
     private String escapeHtml(String str) {
         return str.replace("&", "&amp;")
                   .replace("<", "&lt;")
@@ -720,9 +685,7 @@ private String detectCredentialType(AuthenticationFlowContext context) {
                   .replace("'", "&#39;");
     }
     
-    /**
-     * Escape JavaScript string
-     */
+
     private String escapeJavaScript(String str) {
         return str.replace("\\", "\\\\")
                   .replace("\"", "\\\"")

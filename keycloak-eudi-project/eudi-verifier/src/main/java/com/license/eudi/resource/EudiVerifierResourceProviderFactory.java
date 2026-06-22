@@ -6,10 +6,7 @@ import org.keycloak.models.KeycloakSessionFactory;
 import org.keycloak.services.resource.RealmResourceProvider;
 import org.keycloak.services.resource.RealmResourceProviderFactory;
 
-/**
- * Factory pentru EudiVerifierResourceProvider
- * Inregistreaza endpoint-urile /realms/{realm}/eudi-verifier/*
- */
+
 public class EudiVerifierResourceProviderFactory implements RealmResourceProviderFactory {
     
     public static final String ID = "eudi-verifier";

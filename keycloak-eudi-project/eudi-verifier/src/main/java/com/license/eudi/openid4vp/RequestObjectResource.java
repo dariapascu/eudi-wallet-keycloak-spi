@@ -15,12 +15,7 @@ import java.util.Base64;
 import java.util.HashMap;
 import java.util.Map;
 
-/**
- * REST endpoint for serving Request Objects in OpenID4VP.
- * Wallets fetch the actual presentation request from here.
- * 
- * Endpoint: GET /realms/{realm}/eudi-verifier/request/{requestId}
- */
+
 public class RequestObjectResource implements RealmResourceProvider {
     
     private static final Logger LOG = Logger.getLogger(RequestObjectResource.class);
